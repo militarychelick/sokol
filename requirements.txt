@@ -1,0 +1,26 @@
+# Sokol — core runtime
+pydantic>=2.5.0,<3
+rapidfuzz>=3.6.0
+
+# GUI / automation (install as needed)
+# pyautogui
+# pywin32
+# psutil
+# easyocr
+# Pillow
+# SpeechRecognition
+# pyaudio
+
+# Optional: local STT fallback (heavy)
+# openai-whisper
+
+# Optional: noise reduction for mic
+# noisereduce
+# numpy
+
+# Optional: chess move / FEN checks (sokol.chess_helpers)
+# chess>=1.10.0
+
+# Dev
+pytest>=7.4.0
+ruff>=0.1.0

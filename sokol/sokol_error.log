@@ -1,0 +1,516 @@
+
+============================================================
+2026-04-08T01:42:04.469391 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+  File "c:\projekt\sokol\sokol\memory\__init__.py", line 3, in <module>
+    from .vector_store import VectorMemoryStore
+  File "c:\projekt\sokol\sokol\memory\vector_store.py", line 10, in <module>
+    from .memory_types import MemoryItem, MemoryType
+  File "c:\projekt\sokol\sokol\memory\memory_types.py", line 6, in <module>
+    from pydantic import BaseModel, Field
+ModuleNotFoundError: No module named 'pydantic'
+
+============================================================
+2026-04-08T01:43:38.966124 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+  File "c:\projekt\sokol\sokol\memory\__init__.py", line 3, in <module>
+    from .vector_store import VectorMemoryStore
+  File "c:\projekt\sokol\sokol\memory\vector_store.py", line 10, in <module>
+    from .memory_types import MemoryItem, MemoryType
+  File "c:\projekt\sokol\sokol\memory\memory_types.py", line 6, in <module>
+    from pydantic import BaseModel, Field
+ModuleNotFoundError: No module named 'pydantic'
+
+============================================================
+2026-04-08T01:48:17.410505 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+  File "c:\projekt\sokol\sokol\memory\__init__.py", line 3, in <module>
+    from .vector_store import VectorMemoryStore
+  File "c:\projekt\sokol\sokol\memory\vector_store.py", line 10, in <module>
+    from .memory_types import MemoryItem, MemoryType
+  File "c:\projekt\sokol\sokol\memory\memory_types.py", line 6, in <module>
+    from pydantic import BaseModel, Field
+ModuleNotFoundError: No module named 'pydantic'
+
+============================================================
+2026-04-08T01:52:34.301133 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+  File "c:\projekt\sokol\sokol\memory\__init__.py", line 3, in <module>
+    from .vector_store import VectorMemoryStore
+  File "c:\projekt\sokol\sokol\memory\vector_store.py", line 10, in <module>
+    from .memory_types import MemoryItem, MemoryType
+  File "c:\projekt\sokol\sokol\memory\memory_types.py", line 6, in <module>
+    from pydantic import BaseModel, Field
+ModuleNotFoundError: No module named 'pydantic'
+
+============================================================
+2026-04-08T01:53:17.026169 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+ImportError: cannot import name 'ContextMemory' from 'sokol.memory' (c:\projekt\sokol\sokol\memory\__init__.py)
+
+============================================================
+2026-04-08T01:53:31.156440 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+ImportError: cannot import name 'ContextMemory' from 'sokol.memory' (c:\projekt\sokol\sokol\memory\__init__.py)
+
+============================================================
+2026-04-08T01:54:39.738638 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+  File "c:\projekt\sokol\sokol\memory\__init__.py", line 3, in <module>
+    from .vector_store import VectorMemoryStore
+  File "c:\projekt\sokol\sokol\memory\vector_store.py", line 10, in <module>
+    from .memory_types import MemoryItem, MemoryType
+  File "c:\projekt\sokol\sokol\memory\memory_types.py", line 6, in <module>
+    from pydantic import BaseModel, Field
+ModuleNotFoundError: No module named 'pydantic'
+
+============================================================
+2026-04-08T02:02:18.152442 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+  File "c:\projekt\sokol\sokol\memory\__init__.py", line 3, in <module>
+    from .vector_store import VectorMemoryStore
+  File "c:\projekt\sokol\sokol\memory\vector_store.py", line 10, in <module>
+    from .memory_types import MemoryItem, MemoryType
+  File "c:\projekt\sokol\sokol\memory\memory_types.py", line 6, in <module>
+    from pydantic import BaseModel, Field
+ModuleNotFoundError: No module named 'pydantic'
+
+============================================================
+2026-04-08T02:03:58.861467 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+  File "c:\projekt\sokol\sokol\memory\__init__.py", line 3, in <module>
+    from .vector_store import VectorMemoryStore
+  File "c:\projekt\sokol\sokol\memory\vector_store.py", line 10, in <module>
+    from .memory_types import MemoryItem, MemoryType
+  File "c:\projekt\sokol\sokol\memory\memory_types.py", line 6, in <module>
+    from pydantic import BaseModel, Field
+ModuleNotFoundError: No module named 'pydantic'
+
+============================================================
+2026-04-08T02:04:47.273524 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+  File "c:\projekt\sokol\sokol\memory\__init__.py", line 3, in <module>
+    from .vector_store import VectorMemoryStore
+  File "c:\projekt\sokol\sokol\memory\vector_store.py", line 10, in <module>
+    from .memory_types import MemoryItem, MemoryType
+  File "c:\projekt\sokol\sokol\memory\memory_types.py", line 6, in <module>
+    from pydantic import BaseModel, Field
+ModuleNotFoundError: No module named 'pydantic'
+
+============================================================
+2026-04-08T02:05:57.503592 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+  File "c:\projekt\sokol\sokol\memory\__init__.py", line 3, in <module>
+    from .vector_store import VectorMemoryStore
+  File "c:\projekt\sokol\sokol\memory\vector_store.py", line 11, in <module>
+    from .embeddings import EmbeddingProvider, get_embedding_provider
+  File "c:\projekt\sokol\sokol\memory\embeddings.py", line 7, in <module>
+    import numpy as np
+ModuleNotFoundError: No module named 'numpy'
+
+============================================================
+2026-04-08T02:06:41.598090 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 72, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 36, in <module>
+    from .memory import ContextMemory, ReminderSystem, ClipboardManager
+ImportError: cannot import name 'ContextMemory' from 'sokol.memory' (c:\projekt\sokol\sokol\memory\__init__.py)
+
+============================================================
+2026-04-08T02:21:24.899066 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 39, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 32, in <module>
+    from .automation import GUIAutomation, ScreenCapture, VisionLite, BulkFileOps
+  File "c:\projekt\sokol\sokol\automation.py", line 361
+    old_failsafe = pyautogui.FAILSAFE
+IndentationError: unexpected indent
+
+============================================================
+2026-04-08T02:21:28.265805 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 39, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 32, in <module>
+    from .automation import GUIAutomation, ScreenCapture, VisionLite, BulkFileOps
+  File "c:\projekt\sokol\sokol\automation.py", line 361
+    old_failsafe = pyautogui.FAILSAFE
+IndentationError: unexpected indent
+
+============================================================
+2026-04-08T02:26:25.577427 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 42, in <module>
+    from .gpu_monitor import GPUMonitor
+  File "c:\projekt\sokol\sokol\gpu_monitor.py", line 7, in <module>
+    import psutil
+ModuleNotFoundError: No module named 'psutil'
+
+============================================================
+2026-04-08T02:30:37.221524 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 43, in <module>
+    from .hotkey_system import AltSpaceHotkey
+  File "c:\projekt\sokol\sokol\hotkey_system.py", line 16, in <module>
+    from sokol.vision_system import get_alt_space_activation, activate_context_awareness
+  File "c:\projekt\sokol\sokol\vision_system.py", line 12, in <module>
+    from sokol.agents.base import AgentBase, AgentResponse, AgentStatus
+  File "c:\projekt\sokol\sokol\agents\__init__.py", line 7, in <module>
+    from .vision_agent import VisionAgent
+  File "c:\projekt\sokol\sokol\agents\vision_agent.py", line 12, in <module>
+    from ..vision_system import get_hybrid_vision_system, analyze_screen_image
+ImportError: cannot import name 'get_hybrid_vision_system' from partially initialized module 'sokol.vision_system' (most likely due to a circular import) (c:\projekt\sokol\sokol\vision_system.py)
+
+============================================================
+2026-04-08T02:45:53.709627 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+    ~~~~^^
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 42, in <module>
+    from .fuzzy_match import fuzzy_contains
+ImportError: cannot import name 'fuzzy_contains' from 'sokol.fuzzy_match' (c:\projekt\sokol\sokol\fuzzy_match.py)
+
+============================================================
+2026-04-08T02:46:08.011158 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 42, in <module>
+    from .fuzzy_match import fuzzy_contains
+ImportError: cannot import name 'fuzzy_contains' from 'sokol.fuzzy_match' (c:\projekt\sokol\sokol\fuzzy_match.py)
+
+============================================================
+2026-04-08T03:42:17.879755 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_API_KEY' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:42:20.060641 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_API_KEY' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:42:39.862916 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_MAX_LOADED_MODELS' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:42:42.265199 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_MAX_LOADED_MODELS' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:42:55.544572 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_MAX_LOADED_MODELS' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:42:55.815710 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_MAX_LOADED_MODELS' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:43:53.216337 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_NUM_PARALLEL' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:43:53.709902 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_NUM_PARALLEL' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:44:07.948487 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_FLASH_ATTENTION' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:44:08.402745 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_FLASH_ATTENTION' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:44:19.791545 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_MAX_CONTEXT' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:44:20.498153 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'OLLAMA_MAX_CONTEXT' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:44:33.012029 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'FAST_CONTEXT' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:44:33.643811 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 21, in <module>
+    from .config import (
+ImportError: cannot import name 'FAST_CONTEXT' from 'sokol.config' (c:\projekt\sokol\sokol\config.py)
+
+============================================================
+2026-04-08T03:44:45.849346 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 28, in <module>
+    from .automation import GUIAutomation, SmartLauncher
+ImportError: cannot import name 'SmartLauncher' from 'sokol.automation' (c:\projekt\sokol\sokol\automation.py)
+
+============================================================
+2026-04-08T03:44:46.456510 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 28, in <module>
+    from .automation import GUIAutomation, SmartLauncher
+ImportError: cannot import name 'SmartLauncher' from 'sokol.automation' (c:\projekt\sokol\sokol\automation.py)
+
+============================================================
+2026-04-08T03:44:58.393047 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 30, in <module>
+    from .tools import (
+ImportError: cannot import name 'BulkFileOps' from 'sokol.tools' (c:\projekt\sokol\sokol\tools\__init__.py)
+
+============================================================
+2026-04-08T03:44:58.848525 Fatal error in main()
+Traceback (most recent call last):
+  File "c:\projekt\sokol\run.py", line 179, in <module>
+    main()
+  File "c:\projekt\sokol\sokol\main.py", line 70, in main
+    from .gui_main import SokolGUI
+  File "c:\projekt\sokol\sokol\gui_main.py", line 41, in <module>
+    from .dispatcher import (
+  File "c:\projekt\sokol\sokol\dispatcher.py", line 30, in <module>
+    from .tools import (
+ImportError: cannot import name 'BulkFileOps' from 'sokol.tools' (c:\projekt\sokol\sokol\tools\__init__.py)
