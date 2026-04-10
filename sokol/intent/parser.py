@@ -22,16 +22,25 @@ class IntentParser:
     
     # Keywords for quick classification (no LLM needed)
     QUICK_PATTERNS: dict[str, tuple[IntentType, ActionCategory]] = {
-        # App launch - English
+        # Browser - English (specific patterns FIRST)
+        "open youtube": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
+        "open github": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
+        "open google": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
+        
+        # Browser - Russian (specific patterns FIRST)
+        "открой youtube": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
+        "открой github": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
+        "открой google": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
+        
+        # App launch - English (general patterns AFTER specific)
         "open": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         "launch": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         "start": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         "run": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         
-        # App launch - Russian
+        # App launch - Russian (general patterns AFTER specific)
         "открой": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         "запусти": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
-        "включи": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         "включи": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         
         # App close - English
@@ -39,6 +48,16 @@ class IntentParser:
         "quit": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
         "exit": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
         "kill": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
+        
+        # Window manage - English
+        "minimize": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
+        "maximize": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
+        "close window": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
+        
+        # Window manage - Russian
+        "закрой окно": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
+        "сверни окно": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
+        "разверни окно": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
         
         # App close - Russian
         "закрой": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
@@ -125,14 +144,21 @@ class IntentParser:
     
     def _try_quick_parse(self, text: str) -> Intent | None:
         """Try quick pattern-based parsing."""
-        for pattern, (intent_type, action_category) in self.QUICK_PATTERNS.items():
+        # Sort patterns by length (longer patterns first)
+        sorted_patterns = sorted(
+            self.QUICK_PATTERNS.items(),
+            key=lambda x: len(x[0]),
+            reverse=True
+        )
+        
+        for pattern, (intent_type, action_category) in sorted_patterns:
             if text.startswith(pattern):
                 # Extract entity after pattern
                 entity_text = text[len(pattern):].strip()
                 
-                # Map to new structure
+                # Map to new structure (pass original text for context)
                 action_type, target, params, safety_level = self._map_to_new_structure(
-                    action_category, entity_text
+                    action_category, entity_text, text
                 )
                 
                 return Intent(
@@ -148,7 +174,7 @@ class IntentParser:
         return None
     
     def _map_to_new_structure(
-        self, action_category: ActionCategory, entity_text: str
+        self, action_category: ActionCategory, entity_text: str, raw_text: str = ""
     ) -> tuple[str, str | None, dict, SafetyLevel]:
         """Map old action_category to new action_type structure."""
         from ..core.constants import SafetyLevel
@@ -177,12 +203,33 @@ class IntentParser:
             target = self._normalize_app_name(entity_text)
             params["app"] = target
         elif action_category in (ActionCategory.BROWSER_OPEN, ActionCategory.BROWSER_NAVIGATE):
-            url = self._extract_url(entity_text)
-            if url:
-                target = url
-                params["url"] = url
+            # For specific patterns like "открой youtube", entity_text is empty
+            # Extract site name from raw_text
+            if not entity_text:
+                site_map = {
+                    "youtube": "youtube.com",
+                    "github": "github.com",
+                    "google": "google.com",
+                }
+                # Extract site from raw_text
+                site_name = None
+                for site in site_map:
+                    if site in raw_text.lower():
+                        site_name = site
+                        break
+                if site_name:
+                    url = f"https://{site_map[site_name]}"
+                    target = url
+                    params["url"] = url
+                else:
+                    params["query"] = raw_text
             else:
-                params["query"] = entity_text
+                url = self._extract_url(entity_text)
+                if url:
+                    target = url
+                    params["url"] = url
+                else:
+                    params["query"] = entity_text
         elif action_category == ActionCategory.FILE_SEARCH:
             params["query"] = entity_text
         elif action_category == ActionCategory.HOTKEY:
@@ -190,7 +237,26 @@ class IntentParser:
             target = "+".join(keys)
             params["keys"] = keys
         elif action_category == ActionCategory.WINDOW_MANAGE:
-            params["window_action"] = entity_text
+            # Map window action text to action type
+            window_actions = {
+                "окно": "close",  # "закрой окно" -> close
+                "сверни": "minimize",
+                "разверни": "maximize",
+                "minimize": "minimize",
+                "maximize": "maximize",
+                "close": "close",
+            }
+            if entity_text:
+                window_action = window_actions.get(entity_text.lower(), entity_text)
+            else:
+                # Extract from raw_text (e.g., "закрой окно" -> "close")
+                window_action = "close"  # Default for "закрой окно"
+                if "сверни" in raw_text.lower():
+                    window_action = "minimize"
+                elif "разверни" in raw_text.lower():
+                    window_action = "maximize"
+            target = window_action
+            params["window_action"] = window_action
         elif action_category == ActionCategory.SYSTEM_POWER:
             params["system_action"] = entity_text
         
@@ -212,6 +278,25 @@ class IntentParser:
     ) -> dict[str, Any]:
         """Quick entity extraction for simple patterns."""
         entities: dict[str, Any] = {}
+        
+        # Popular sites should be open_url not app_launch
+        popular_sites = {
+            "youtube": "youtube.com",
+            "github": "github.com",
+            "google": "google.com",
+            "facebook": "facebook.com",
+            "twitter": "twitter.com",
+            "reddit": "reddit.com",
+        }
+        
+        text_lower = text.lower()
+        
+        # Check if text matches popular site
+        for site, url in popular_sites.items():
+            if site in text_lower:
+                entities["url"] = url
+                entities["site"] = site
+                return entities
         
         if category == ActionCategory.APP_LAUNCH:
             # Normalize app name
