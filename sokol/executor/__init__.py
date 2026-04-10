@@ -2,6 +2,6 @@
 Executor layer - Perform actions on Windows
 """
 
-from .action_executor import ActionExecutor
+from .dispatcher import ActionDispatcher
 
-__all__ = ["ActionExecutor"]
+__all__ = ["ActionDispatcher"]

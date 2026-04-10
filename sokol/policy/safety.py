@@ -120,6 +120,15 @@ class SafetyPolicy:
         
         return base_level
     
+    def classify_by_action_type(self, action_type: str) -> SafetyLevel:
+        """Classify by action type (new structure)."""
+        # Map action types to safety levels
+        safety_map = {
+            "close_app": SafetyLevel.CAUTION,
+            "system_action": SafetyLevel.DANGEROUS,
+        }
+        return safety_map.get(action_type, SafetyLevel.SAFE)
+    
     def _has_dangerous_patterns(self, entities: dict[str, Any]) -> bool:
         """Check if entities match dangerous patterns."""
         # Check file paths

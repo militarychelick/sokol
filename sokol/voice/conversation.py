@@ -16,54 +16,74 @@ from .tts import TextToSpeech
 
 class VoiceLayer:
     """
-    Coordinates voice interaction flow.
+    Voice conversation layer - Text-first with optional voice enable.
     
-    This is the main interface for voice I/O:
-    - Listen for user speech
-    - Transcribe to text
-    - Synthesize responses
+    Primary: Text input/output
+    Optional: Voice input/output (can be enabled later)
     """
     
     def __init__(self, config: VoiceConfig) -> None:
         self.config = config
-        
         self.listener = AudioListener(config)
-        self.stt = SpeechToText(config)
-        self.tts = TextToSpeech(config)
-        
+        self.stt = SpeechToText(config.stt)
+        self.tts = TextToSpeech(config.tts)
         self._is_speaking = False
         self._input_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        
+        # Voice enable flag
+        self._voice_enabled = config.enable_voice if hasattr(config, 'enable_voice') else False
         
         # Callbacks
         self._on_listening_start: Callable[[], None] | None = None
         self._on_listening_end: Callable[[], None] | None = None
         self._on_speech_detected: Callable[[], None] | None = None
     
+    def enable_voice(self) -> None:
+        """Enable voice input/output."""
+        self._voice_enabled = True
+    
+    def disable_voice(self) -> None:
+        """Disable voice input/output."""
+        self._voice_enabled = False
+    
+    def is_voice_enabled(self) -> bool:
+        """Check if voice is enabled."""
+        return self._voice_enabled
+    
     async def initialize(self) -> None:
-        """Initialize voice components."""
+        """Initialize voice components (optional)."""
+        if not self._voice_enabled:
+            # Voice not enabled, skip initialization
+            return
+        
         try:
             # Initialize listener
             self.listener.initialize()
         except Exception:
             # Voice hardware not available, will use text only
-            pass
+            self._voice_enabled = False
         
         # Initialize TTS
         try:
             await self.tts.initialize()
         except Exception:
             # TTS not available, will use text output
-            pass
+            self._voice_enabled = False
         
         # Set up VAD callbacks
-        self.listener.on_speech_start(self._handle_speech_start)
-        self.listener.on_speech_end(self._handle_speech_end)
+        if self._voice_enabled:
+            self.listener.on_speech_start(self._handle_speech_start)
+            self.listener.on_speech_end(self._handle_speech_end)
     
     async def shutdown(self) -> None:
         """Shutdown voice components."""
-        self.listener.stop_listening()
-        self.listener.shutdown()
-        self.stt.shutdown()
+        if self._voice_enabled:
+            try:
+                self.listener.stop_listening()
+                self.listener.shutdown()
+                self.stt.shutdown()
+            except Exception:
+                pass
         self.tts.shutdown()
     
     def on_listening_start(self, callback: Callable[[], None]) -> None:
@@ -80,17 +100,19 @@ class VoiceLayer:
     
     async def listen_for_input(self, timeout: float = 30.0) -> str | None:
         """
-        Listen for user voice input.
+        Listen for user voice input (optional).
         
-        This is the main entry point for getting voice input.
-        Uses push-to-talk or wake word depending on config.
+        If voice is disabled, returns None immediately.
         
         Args:
             timeout: Maximum time to wait for input
         
         Returns:
-            Transcribed text or None if no input
+            Transcribed text or None if no input/voice disabled
         """
+        if not self._voice_enabled:
+            return None  # Voice disabled, use text input
+        
         if self._is_speaking:
             return None  # Don't listen while speaking
         
@@ -133,7 +155,9 @@ class VoiceLayer:
     
     async def speak(self, text: str) -> None:
         """
-        Speak text to user.
+        Speak text to user (optional).
+        
+        If voice is disabled, does nothing (caller should use text output).
         
         Args:
             text: Text to speak
@@ -141,10 +165,18 @@ class VoiceLayer:
         if not text:
             return
         
+        if not self._voice_enabled:
+            # Voice disabled, caller should use text output
+            return
+        
         self._is_speaking = True
         
         try:
-            await self.tts.speak(text)
+            # Generate audio
+            audio = await self.tts.synthesize(text)
+            
+            # Play audio
+            await self.tts.play_audio(audio)
         finally:
             self._is_speaking = False
     

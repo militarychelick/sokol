@@ -1,5 +1,5 @@
 """
-Task planner - Minimal implementation for v2
+Task planner - Optional planning for complex/ambiguous tasks
 """
 
 from __future__ import annotations
@@ -12,24 +12,41 @@ from ..core.config import Config
 
 class TaskPlanner:
     """
-    Minimal task planner for v2.
+    Optional task planner for complex/ambiguous tasks.
     
-    For now, simple tasks don't need planning.
-    Complex tasks will be implemented later.
+    Only triggered when:
+    - complexity > 5
+    - ambiguity detected (multiple interpretations)
+    - multi-step tasks (contains "and", "then")
     """
     
     def __init__(self, config: Config) -> None:
         self.config = config
     
+    def needs_planning(self, intent: Intent) -> bool:
+        """Check if intent requires planning."""
+        # Complexity threshold
+        if intent.complexity > 5:
+            return True
+        
+        # Ambiguity indicators
+        ambiguity_indicators = ["and", "then", "after", "before", "и", "потом"]
+        text_lower = intent.raw_text.lower()
+        
+        for indicator in ambiguity_indicators:
+            if indicator in text_lower:
+                return True
+        
+        return False
+    
     async def create_plan(self, intent: Intent) -> Plan:
         """Create execution plan for intent."""
-        # For v2, we don't do complex planning
-        # Simple tasks are executed directly
-        # If complexity > 3, we'll just return a single step
+        # For v2, minimal planning - just return single step
+        # Complex planning will be implemented later
         step = Step(
-            action="direct_execute",
-            action_category=intent.action_category or intent.action_category,
-            params=intent.entities,
+            action=intent.action_type,
+            action_category=None,  # Not used in new structure
+            params=intent.params,
         )
         
         return Plan(

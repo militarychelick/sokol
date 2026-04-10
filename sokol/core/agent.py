@@ -24,25 +24,24 @@ from .exceptions import (
 
 @dataclass
 class Intent:
-    """Parsed user intent."""
-    raw_text: str
-    intent_type: IntentType
-    action_category: ActionCategory | None = None
-    entities: dict[str, Any] = field(default_factory=dict)
-    complexity: int = 1  # 1-10 scale
+    """Parsed user intent with strict structure."""
+    action_type: str           # "launch_app", "open_url", "press_hotkey"
+    target: str | None         # "chrome", "youtube.com", "ctrl+c"
+    params: dict = field(default_factory=dict)  # additional parameters
+    safety_level: SafetyLevel = SafetyLevel.SAFE
+    complexity: int = 1        # 1-10 scale
+    requires_planning: bool = False
+    raw_text: str = ""         # original input
     confidence: float = 0.0
-    context: dict[str, Any] = field(default_factory=dict)
+    context: dict = field(default_factory=dict)
     
     def is_simple(self) -> bool:
         """Check if intent is simple enough for direct execution."""
-        return self.complexity <= 3 and self.intent_type in (
-            IntentType.COMMAND,
-            IntentType.QUERY,
-        )
+        return not self.requires_planning and self.complexity <= 3
     
     def needs_planning(self) -> bool:
         """Check if intent needs planning/decomposition."""
-        return self.complexity > 3 or self.intent_type == IntentType.WORKFLOW
+        return self.requires_planning
 
 
 @dataclass
@@ -146,10 +145,10 @@ class SokolAgent:
     
     @property
     def executor(self) -> Any:
-        """Action executor (lazy loaded)."""
+        """Action dispatcher (lazy loaded)."""
         if self._executor is None:
-            from ..executor import ActionExecutor
-            self._executor = ActionExecutor(self.config)
+            from ..executor import ActionDispatcher
+            self._executor = ActionDispatcher()
         return self._executor
     
     @property
@@ -303,42 +302,51 @@ class SokolAgent:
         Process user input through the complete flow.
         
         This is THE single execution path:
-        Input -> Intent -> Policy -> Plan/Execute -> Memory -> Response
+        Input -> Safety -> Intent -> Plan (optional) -> Execute -> Memory -> Response
         """
         self.set_state(AgentState.PROCESSING)
         self.current_intent = None
         self.current_plan = None
         
         try:
-            # Step 1: Parse intent
+            # Step 1: Quick safety check on raw input (before LLM)
+            quick_safety = self._quick_safety_check(text)
+            if quick_safety == SafetyLevel.DANGEROUS:
+                return ActionResult(
+                    success=False,
+                    action="blocked",
+                    message="This action is too dangerous to execute",
+                )
+            
+            # Step 2: Parse intent
             intent = await self._parse_intent(text)
             self.current_intent = intent
             
-            # Step 2: Check safety policy
+            # Step 3: Check safety policy on parsed intent
             safety = await self._check_safety(intent)
             
             if safety == SafetyLevel.DANGEROUS:
                 # Request explicit permission
                 permission = await self._request_permission(intent)
                 if not permission:
-                    raise PermissionDeniedError(action=str(intent.action_category))
+                    raise PermissionDeniedError(action=intent.action_type)
             
             elif safety == SafetyLevel.CAUTION:
                 # Request confirmation
                 confirmed = await self._request_confirmation(intent)
                 if not confirmed:
-                    raise PermissionDeniedError(action=str(intent.action_category))
+                    raise PermissionDeniedError(action=intent.action_type)
             
-            # Step 3: Execute (direct or planned)
-            if intent.is_simple():
+            # Step 4: Execute (direct or planned)
+            if not self.planner.needs_planning(intent):
                 result = await self._execute_direct(intent)
             else:
                 result = await self._execute_planned(intent)
             
-            # Step 4: Store in memory
+            # Step 5: Store in memory
             await self._store_interaction(text, intent, result)
             
-            # Step 5: Respond to user
+            # Step 6: Respond to user
             await self._respond(result)
             
             return result
@@ -371,6 +379,22 @@ class SokolAgent:
         finally:
             self.set_state(AgentState.IDLE)
     
+    def _quick_safety_check(self, text: str) -> SafetyLevel:
+        """Quick safety check on raw input before LLM."""
+        text_lower = text.lower()
+        
+        # Dangerous patterns
+        dangerous_patterns = [
+            "delete", "remove", "format", "shutdown", "restart",
+            "удалить", "форматировать", "выключить", "перезагрузить",
+        ]
+        
+        for pattern in dangerous_patterns:
+            if pattern in text_lower:
+                return SafetyLevel.DANGEROUS
+        
+        return SafetyLevel.SAFE
+    
     async def _parse_intent(self, text: str) -> Intent:
         """Parse user text into structured intent."""
         self.set_state(AgentState.PROCESSING)
@@ -378,17 +402,20 @@ class SokolAgent:
         # Get context from memory
         context = await self.memory.get_context()
         
-        # Parse intent using LLM
+        # Parse intent using LLM or patterns
         intent = await self.intent_parser.parse(text, context)
         
         return intent
     
     async def _check_safety(self, intent: Intent) -> SafetyLevel:
         """Check safety level for intent."""
-        if intent.action_category is None:
-            return SafetyLevel.CAUTION  # Unknown actions need confirmation
+        # Use the safety level from intent (already set by parser)
+        # Or classify if not set
+        if intent.safety_level != SafetyLevel.SAFE:
+            return intent.safety_level
         
-        return self.policy.classify(intent.action_category, intent.entities)
+        # Additional classification if needed
+        return self.policy.classify_by_action_type(intent.action_type)
     
     async def _request_permission(self, intent: Intent) -> bool:
         """Request explicit permission for dangerous action."""
