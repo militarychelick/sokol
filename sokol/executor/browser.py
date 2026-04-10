@@ -79,14 +79,20 @@ class BrowserExecutor(BaseExecutor):
     
     def _open_in_default_browser(self, url: str) -> ExecutionResult:
         """Open URL in default browser."""
-        import webbrowser
-        webbrowser.open(url)
-        
-        return ExecutionResult(
-            success=True,
-            message=f"Opened URL: {url}",
-            data={"url": url},
-        )
+        try:
+            import webbrowser
+            webbrowser.open(url)
+            return ExecutionResult(
+                success=True,
+                message=f"Opened URL: {url}",
+                data={"url": url},
+            )
+        except Exception as e:
+            return ExecutionResult(
+                success=False,
+                message=f"Could not open default browser",
+                error=str(e),
+            )
     
     def _open_in_specific_browser(self, url: str, browser: str) -> ExecutionResult:
         """Open URL in specific browser."""

@@ -125,7 +125,7 @@ class SokolAgent:
         """Text layer (lazy loaded)."""
         if self._text is None:
             from ..text import TextLayer
-            self._text = TextLayer()
+            self._text = TextLayer(use_stdin=True)
         return self._text
     
     @property
@@ -205,14 +205,18 @@ class SokolAgent:
         if self.config.gui.show_on_start:
             self._start_gui()
         
-        # Main interaction loop
-        while not self._shutdown:
-            try:
-                await self._interaction_loop()
-            except Exception as e:
-                self.set_state(AgentState.ERROR)
-                await self._handle_error(e)
-                self.set_state(AgentState.IDLE)
+        try:
+            # Main interaction loop
+            while not self._shutdown:
+                try:
+                    await self._interaction_loop()
+                except Exception as e:
+                    self.set_state(AgentState.ERROR)
+                    await self._handle_error(e)
+                    self.set_state(AgentState.IDLE)
+        finally:
+            # Always cleanup
+            await self._shutdown()
     
     async def _initialize(self) -> None:
         """Initialize all required components."""
@@ -222,8 +226,45 @@ class SokolAgent:
         # Load user profile
         await self.memory.load_profile()
         
-        # Initialize LLM router
-        await self.llm_router.initialize()
+        # Initialize LLM router (optional - can work without it)
+        try:
+            await self.llm_router.initialize()
+        except Exception:
+            # LLM not available, will work with patterns only
+            pass
+        
+        # Start stdin reader for text input
+        await self.text.start_stdin_reader()
+        
+        # Initialize voice (optional - may fail without hardware)
+        try:
+            await self.voice.initialize()
+        except Exception:
+            # Voice not available, text only
+            pass
+    
+    async def _shutdown(self) -> None:
+        """Cleanup all components."""
+        # Stop stdin reader
+        await self.text.stop_stdin_reader()
+        
+        # Shutdown voice
+        try:
+            await self.voice.shutdown()
+        except Exception:
+            pass
+        
+        # Shutdown memory
+        try:
+            await self.memory.shutdown()
+        except Exception:
+            pass
+        
+        # Shutdown LLM router
+        try:
+            await self.llm_router.shutdown()
+        except Exception:
+            pass
     
     async def _interaction_loop(self) -> None:
         """Single interaction cycle."""
@@ -461,9 +502,15 @@ class SokolAgent:
             return f"I couldn't complete that. {result.message}"
     
     async def _speak(self, text: str) -> None:
-        """Speak text to user."""
+        """Speak text to user (text fallback)."""
         self.set_state(AgentState.SPEAKING)
-        await self.voice.speak(text)
+        
+        # Try voice first, fallback to text
+        try:
+            await self.voice.speak(text)
+        except Exception:
+            # Voice not available, use text
+            await self.text.output(text)
     
     async def _handle_error(self, error: Exception) -> None:
         """Handle an error gracefully."""

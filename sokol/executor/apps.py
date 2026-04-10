@@ -119,6 +119,14 @@ class AppLauncher(BaseExecutor):
             exe_name = self.APP_MAPPINGS[app_name_lower]
             return self._launch_from_path(exe_name)
         
+        # Try Windows Search (win+r style)
+        if self._launch_via_windows_search(app_name):
+            return ExecutionResult(
+                success=True,
+                message=f"Launched: {app_name}",
+                data={"app": app_name},
+            )
+        
         # Try to find in PATH
         if self._is_in_path(app_name):
             subprocess.Popen([app_name], shell=True)
@@ -140,6 +148,22 @@ class AppLauncher(BaseExecutor):
             success=False,
             message=f"Could not find application: {app_name}",
         )
+    
+    def _launch_via_windows_search(self, app_name: str) -> bool:
+        """Launch via Windows Search (Win+R style)."""
+        try:
+            # Use Windows Search via PowerShell
+            ps_script = f'''
+            Start-Process -FilePath "shell:AppsFolder" -ArgumentList "{app_name}"
+            '''
+            subprocess.run(
+                ["powershell", "-Command", ps_script],
+                capture_output=True,
+                timeout=5,
+            )
+            return True
+        except Exception:
+            return False
     
     def _is_in_path(self, app_name: str) -> bool:
         """Check if application is in system PATH."""

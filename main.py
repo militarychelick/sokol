@@ -20,6 +20,21 @@ def main() -> int:
     # Load configuration
     config = Config.load()
     
+    print("=" * 60)
+    print("Sokol v2 - Voice AI Agent for Windows")
+    print("=" * 60)
+    print()
+    print("Type commands and press Enter to execute.")
+    print("Examples:")
+    print("  - открой chrome")
+    print("  - открой youtube")
+    print("  - найди документ")
+    print("  - нажми ctrl+c")
+    print()
+    print("Press Ctrl+C to exit.")
+    print("=" * 60)
+    print()
+    
     # Create and run agent
     agent = SokolAgent(config)
     
@@ -30,6 +45,8 @@ def main() -> int:
         return 0
     except Exception as e:
         print(f"Error: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
     
     return 0

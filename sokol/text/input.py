@@ -5,6 +5,7 @@ Text input/output layer - fallback when voice is unavailable
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import Callable
 
 
@@ -16,19 +17,49 @@ class TextLayer:
     user prefers text input.
     """
     
-    def __init__(self) -> None:
+    def __init__(self, use_stdin: bool = True) -> None:
         self._input_queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._output_callback: Callable[[str], None] | None = None
+        self._use_stdin = use_stdin
+        self._stdin_task: asyncio.Task | None = None
     
     def set_output_callback(self, callback: Callable[[str], None]) -> None:
         """Set callback for text output."""
         self._output_callback = callback
     
+    async def start_stdin_reader(self) -> None:
+        """Start reading from stdin in background."""
+        if not self._use_stdin:
+            return
+        
+        async def read_stdin():
+            loop = asyncio.get_event_loop()
+            while True:
+                try:
+                    line = await loop.run_in_executor(None, sys.stdin.readline)
+                    if not line:
+                        break
+                    text = line.strip()
+                    if text:
+                        self._input_queue.put_nowait(text)
+                except EOFError:
+                    break
+        
+        self._stdin_task = asyncio.create_task(read_stdin())
+    
+    async def stop_stdin_reader(self) -> None:
+        """Stop reading from stdin."""
+        if self._stdin_task:
+            self._stdin_task.cancel()
+            try:
+                await self._stdin_task
+            except asyncio.CancelledError:
+                pass
+            self._stdin_task = None
+    
     async def get_input(self, timeout: float = 60.0) -> str | None:
         """
         Get text input from user.
-        
-        This is typically called from GUI when user types a command.
         
         Args:
             timeout: Maximum time to wait
@@ -60,6 +91,9 @@ class TextLayer:
         Args:
             text: Text to display
         """
+        # Always print to console for visibility
+        print(f"\n[Agent]: {text}")
+        
         if self._output_callback:
             self._output_callback(text)
     

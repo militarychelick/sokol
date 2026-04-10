@@ -76,8 +76,8 @@ class ActionExecutor:
         # Build step from intent
         step = self._intent_to_step(intent)
         
-        # Execute
-        result = executor.execute(step)
+        # Execute with retry logic
+        result = await self._execute_with_retry(executor, step)
         
         # Convert to ActionResult
         return ActionResult(
@@ -87,6 +87,37 @@ class ActionExecutor:
             data=result.data,
             error=result.error,
         )
+    
+    async def _execute_with_retry(self, executor: Any, step: Step, max_retries: int = 2) -> ExecutionResult:
+        """Execute step with retry logic."""
+        import asyncio
+        
+        for attempt in range(max_retries):
+            try:
+                # Run synchronous executor in thread pool
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(None, executor.execute, step)
+                
+                if result.success:
+                    return result
+                
+                # If failed and not last attempt, wait and retry
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.5)
+                    continue
+                
+                return result
+                
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.5)
+                    continue
+                
+                return ExecutionResult(
+                    success=False,
+                    message=f"Execution failed after {max_retries} attempts",
+                    error=str(e),
+                )
     
     async def execute_step(self, step: Step) -> ActionResult:
         """

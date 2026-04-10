@@ -77,8 +77,13 @@ class HotkeyExecutor(BaseExecutor):
                 message="No keys provided",
             )
         
+        # Handle both string and list formats
         if isinstance(keys, str):
             keys = keys.split("+")
+        elif isinstance(keys, list):
+            pass  # Already a list
+        else:
+            keys = [str(keys)]
         
         try:
             pyautogui.hotkey(*keys)

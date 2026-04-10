@@ -22,56 +22,72 @@ class IntentParser:
     
     # Keywords for quick classification (no LLM needed)
     QUICK_PATTERNS: dict[str, tuple[IntentType, ActionCategory]] = {
-        # App launch
+        # App launch - English
         "open": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         "launch": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         "start": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         "run": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
         
-        # App close
+        # App launch - Russian
+        "открой": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
+        "запусти": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
+        "включи": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
+        "включи": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
+        
+        # App close - English
         "close": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
         "quit": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
         "exit": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
         "kill": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
         
-        # File operations
+        # App close - Russian
+        "закрой": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
+        "выключи": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
+        "останови": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
+        
+        # File operations - English
         "find": (IntentType.COMMAND, ActionCategory.FILE_SEARCH),
         "search": (IntentType.COMMAND, ActionCategory.FILE_SEARCH),
-        "delete": (IntentType.COMMAND, ActionCategory.FILE_DELETE),
-        "remove": (IntentType.COMMAND, ActionCategory.FILE_DELETE),
         
-        # Browser
+        # File operations - Russian
+        "найди": (IntentType.COMMAND, ActionCategory.FILE_SEARCH),
+        "поиск": (IntentType.COMMAND, ActionCategory.FILE_SEARCH),
+        "искать": (IntentType.COMMAND, ActionCategory.FILE_SEARCH),
+        
+        # Browser - English
         "browse": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
         "go to": (IntentType.COMMAND, ActionCategory.BROWSER_NAVIGATE),
         "visit": (IntentType.COMMAND, ActionCategory.BROWSER_NAVIGATE),
         
-        # Media
+        # Browser - Russian
+        "открой в браузере": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
+        "зайди на": (IntentType.COMMAND, ActionCategory.BROWSER_NAVIGATE),
+        
+        # Media - English
         "play": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
         "pause": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
         "stop": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
-        "next": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
-        "previous": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
         
-        # Window
+        # Media - Russian
+        "играй": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
+        "пауза": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
+        
+        # Window - English
         "minimize": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
         "maximize": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
         "switch": (IntentType.COMMAND, ActionCategory.APP_SWITCH),
         
-        # System
-        "shutdown": (IntentType.COMMAND, ActionCategory.SYSTEM_POWER),
-        "restart": (IntentType.COMMAND, ActionCategory.SYSTEM_POWER),
-        "sleep": (IntentType.COMMAND, ActionCategory.SYSTEM_POWER),
+        # Window - Russian
+        "сверни": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
+        "разверни": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
         
-        # Queries
-        "what time": (IntentType.QUERY, ActionCategory.UNKNOWN),
-        "what is": (IntentType.QUERY, ActionCategory.UNKNOWN),
-        "how do": (IntentType.QUERY, ActionCategory.UNKNOWN),
-        "tell me": (IntentType.QUERY, ActionCategory.UNKNOWN),
+        # Hotkeys
+        "нажми": (IntentType.COMMAND, ActionCategory.HOTKEY),
+        "press": (IntentType.COMMAND, ActionCategory.HOTKEY),
         
         # Cancel
         "cancel": (IntentType.CANCEL, ActionCategory.UNKNOWN),
-        "nevermind": (IntentType.CANCEL, ActionCategory.UNKNOWN),
-        "forget it": (IntentType.CANCEL, ActionCategory.UNKNOWN),
+        "отмена": (IntentType.CANCEL, ActionCategory.UNKNOWN),
     }
     
     def __init__(self, config: Config) -> None:
@@ -136,22 +152,102 @@ class IntentParser:
         entities: dict[str, Any] = {}
         
         if category == ActionCategory.APP_LAUNCH:
-            entities["app"] = text
+            # Normalize app name
+            app_name = self._normalize_app_name(text)
+            entities["app"] = app_name
         
         elif category == ActionCategory.FILE_SEARCH:
             entities["query"] = text
         
         elif category == ActionCategory.BROWSER_NAVIGATE:
-            # Check if it looks like URL
-            if "." in text and " " not in text:
-                entities["url"] = text if text.startswith("http") else f"https://{text}"
+            # Check if it's a known site
+            url = self._extract_url(text)
+            if url:
+                entities["url"] = url
             else:
                 entities["query"] = text
+        
+        elif category == ActionCategory.HOTKEY:
+            # Parse hotkey
+            entities["keys"] = self._parse_hotkey(text)
         
         elif category == ActionCategory.MEDIA_CONTROL:
             entities["action"] = text
         
         return entities
+    
+    def _normalize_app_name(self, text: str) -> str:
+        """Normalize app name to common format."""
+        text_lower = text.lower().strip()
+        
+        # Common mappings
+        mappings = {
+            "chrome": "chrome",
+            "хром": "chrome",
+            "хромиум": "chrome",
+            "firefox": "firefox",
+            "фаерфокс": "firefox",
+            "edge": "msedge",
+            "эдж": "msedge",
+            "youtube": "chrome",  # YouTube usually opens in Chrome
+            "ютуб": "chrome",
+            "notepad": "notepad",
+            "блокнот": "notepad",
+            "калькулятор": "calc",
+            "калькулятор": "calc",
+        }
+        
+        return mappings.get(text_lower, text_lower)
+    
+    def _parse_hotkey(self, text: str) -> list[str]:
+        """Parse hotkey combination."""
+        # Simple parsing: "ctrl+c", "ctrl shift c", etc.
+        parts = text.lower().replace("+", " ").split()
+        
+        # Normalize
+        normalized = []
+        for part in parts:
+            if part in ["ctrl", "control"]:
+                normalized.append("ctrl")
+            elif part in ["alt"]:
+                normalized.append("alt")
+            elif part in ["shift"]:
+                normalized.append("shift")
+            elif part in ["win", "windows", "meta"]:
+                normalized.append("win")
+            else:
+                # Assume it's a key
+                normalized.append(part)
+        
+        return normalized
+    
+    def _extract_url(self, text: str) -> str | None:
+        """Extract URL from text, handling common sites."""
+        text_lower = text.lower().strip()
+        
+        # Known sites mapping
+        site_mappings = {
+            "youtube": "https://youtube.com",
+            "ютуб": "https://youtube.com",
+            "google": "https://google.com",
+            "гугл": "https://google.com",
+            "github": "https://github.com",
+            "гитхаб": "https://github.com",
+            "stackoverflow": "https://stackoverflow.com",
+        }
+        
+        if text_lower in site_mappings:
+            return site_mappings[text_lower]
+        
+        # Check if already a URL
+        if text_lower.startswith("http://") or text_lower.startswith("https://"):
+            return text_lower
+        
+        # Check if looks like a domain
+        if "." in text_lower and " " not in text_lower:
+            return f"https://{text_lower}"
+        
+        return None
     
     async def _llm_parse(
         self,

@@ -41,14 +41,19 @@ class VoiceLayer:
     
     async def initialize(self) -> None:
         """Initialize voice components."""
-        # Initialize listener
-        self.listener.initialize()
-        
-        # Initialize STT (lazy loads model)
-        # self.stt.initialize()  # Can be lazy
+        try:
+            # Initialize listener
+            self.listener.initialize()
+        except Exception:
+            # Voice hardware not available, will use text only
+            pass
         
         # Initialize TTS
-        await self.tts.initialize()
+        try:
+            await self.tts.initialize()
+        except Exception:
+            # TTS not available, will use text output
+            pass
         
         # Set up VAD callbacks
         self.listener.on_speech_start(self._handle_speech_start)
@@ -89,14 +94,14 @@ class VoiceLayer:
         if self._is_speaking:
             return None  # Don't listen while speaking
         
-        # Notify listening started
-        if self._on_listening_start:
-            self._on_listening_start()
-        
-        # Start continuous listening
-        self.listener.start_listening()
-        
         try:
+            # Notify listening started
+            if self._on_listening_start:
+                self._on_listening_start()
+            
+            # Start continuous listening
+            self.listener.start_listening()
+            
             # Wait for speech segment
             audio = self.listener.get_speech_audio(timeout=timeout)
             
@@ -111,11 +116,20 @@ class VoiceLayer:
             
             return None
             
+        except Exception:
+            # Voice input failed, return None (will fall back to text)
+            return None
         finally:
-            self.listener.stop_listening()
+            try:
+                self.listener.stop_listening()
+            except Exception:
+                pass
             
             if self._on_listening_end:
-                self._on_listening_end()
+                try:
+                    self._on_listening_end()
+                except Exception:
+                    pass
     
     async def speak(self, text: str) -> None:
         """
