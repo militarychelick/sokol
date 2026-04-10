@@ -1,0 +1,68 @@
+# Sokol Agent Configuration
+
+[agent]
+name = "Sokol"
+wake_words = ["sokol", "cokol", "sockol"]
+language = "ru"
+response_style = "brief"  # brief, normal, detailed
+
+[llm]
+# Primary: cloud, Fallback: local
+provider = "openai"  # openai, anthropic, ollama
+fallback_provider = "ollama"
+fallback_timeout = 10.0  # seconds before fallback
+
+[llm.openai]
+model = "gpt-4o"
+api_key_env = "OPENAI_API_KEY"
+max_tokens = 1024
+temperature = 0.7
+
+[llm.anthropic]
+model = "claude-3-sonnet-20240229"
+api_key_env = "ANTHROPIC_API_KEY"
+max_tokens = 1024
+
+[llm.ollama]
+model = "llama3"
+base_url = "http://localhost:11434"
+timeout = 30.0
+
+[voice]
+enabled = false
+wake_word_engine = "porcupine"  # porcupine, vosk, openwakeword
+stt_engine = "whisper"  # whisper, azure
+tts_engine = "edge-tts"  # edge-tts, pyttsx3
+
+[voice.porcupine]
+access_key_env = "PICOVOICE_ACCESS_KEY"
+
+[safety]
+confirm_dangerous = true
+dangerous_tools = ["file_delete", "file_write", "app_close", "system_shutdown"]
+max_retries = 3
+
+[memory]
+session_ttl = 3600  # seconds
+profile_path = "data/profile.db"
+longterm_path = "data/longterm.db"
+
+[logging]
+level = "INFO"
+file = "logs/sokol.log"
+max_size = 10485760  # 10MB
+backup_count = 5
+format = "json"  # json, text
+
+[ui]
+theme = "dark"
+start_minimized = false
+show_on_startup = true
+tray_icon = true
+
+[automation]
+# Priority: UIA > Vision > OCR for Windows
+# Priority: DOM > Mouse for Browser
+uia_timeout = 5.0
+browser_timeout = 10.0
+ocr_fallback = true
