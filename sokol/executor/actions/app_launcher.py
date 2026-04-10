@@ -1,14 +1,14 @@
 """
-App launcher action - Launch/close applications
+App launcher action
 """
 
 from __future__ import annotations
 
 import subprocess
-from pathlib import Path
 
 from .base import BaseAction
-from ...core.agent import ActionResult, Intent
+from ...core.intent import Intent
+from ...core.result import ActionResult
 
 
 class AppLauncherAction(BaseAction):
@@ -31,94 +31,46 @@ class AppLauncherAction(BaseAction):
     
     def _launch(self, intent: Intent) -> ActionResult:
         """Launch application."""
-        target = intent.target or intent.params.get("app")
-        
-        if not target:
-            return ActionResult(
-                success=False,
-                action="launch_app",
-                message="No app name provided",
-            )
+        app = intent.params.get("app", intent.target)
         
         try:
-            # Try Windows Search first
-            if self._launch_via_windows_search(target):
-                return ActionResult(
-                    success=True,
-                    action="launch_app",
-                    message=f"Launched: {target}",
-                    data={"app": target},
-                )
-            
-            # Try direct launch
-            subprocess.Popen([target], shell=True)
+            subprocess.Popen(app)
             return ActionResult(
                 success=True,
                 action="launch_app",
-                message=f"Launched: {target}",
-                data={"app": target},
+                message=f"Launched: {app}",
             )
         except Exception as e:
             return ActionResult(
                 success=False,
                 action="launch_app",
-                message=f"Could not launch: {target}",
+                message=f"Failed to launch {app}",
                 error=str(e),
             )
     
-    def _launch_via_windows_search(self, app_name: str) -> bool:
-        """Launch via Windows Search."""
-        try:
-            ps_script = f'Start-Process -FilePath "shell:AppsFolder" -ArgumentList "{app_name}"'
-            subprocess.run(
-                ["powershell", "-Command", ps_script],
-                capture_output=True,
-                timeout=5,
-            )
-            return True
-        except Exception:
-            return False
-    
     def _close(self, intent: Intent) -> ActionResult:
         """Close application."""
-        target = intent.target or intent.params.get("app")
-        
-        if not target:
-            return ActionResult(
-                success=False,
-                action="close_app",
-                message="No app name provided",
-            )
+        app = intent.params.get("app", intent.target)
         
         try:
-            subprocess.run(
-                ["taskkill", "/f", "/im", f"{target}.exe"],
-                capture_output=True,
-                timeout=5,
-            )
+            subprocess.Popen(["taskkill", "/F", "/IM", f"{app}.exe"])
             return ActionResult(
                 success=True,
                 action="close_app",
-                message=f"Closed: {target}",
+                message=f"Closed: {app}",
             )
         except Exception as e:
             return ActionResult(
                 success=False,
                 action="close_app",
-                message=f"Could not close: {target}",
+                message=f"Failed to close {app}",
                 error=str(e),
             )
     
     def _switch(self, intent: Intent) -> ActionResult:
         """Switch to application."""
-        target = intent.target or intent.params.get("app")
-        
-        if not target:
-            return ActionResult(
-                success=False,
-                action="switch_app",
-                message="No app name provided",
-            )
-        
-        # For now, just launch (Windows will switch if already open)
-        return self._launch(intent)
+        return ActionResult(
+            success=False,
+            action="switch_app",
+            message="Switch not implemented yet",
+        )

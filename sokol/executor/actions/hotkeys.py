@@ -1,5 +1,5 @@
 """
-Hotkey action - Press keyboard shortcuts
+Hotkey action
 """
 
 from __future__ import annotations
@@ -7,7 +7,8 @@ from __future__ import annotations
 import pyautogui
 
 from .base import BaseAction
-from ...core.agent import ActionResult, Intent
+from ...core.intent import Intent
+from ...core.result import ActionResult
 
 
 class HotkeyAction(BaseAction):
@@ -26,22 +27,14 @@ class HotkeyAction(BaseAction):
     
     def _press_hotkey(self, intent: Intent) -> ActionResult:
         """Press hotkey combination."""
-        keys = intent.target or intent.params.get("keys")
+        keys = intent.params.get("keys", [])
         
         if not keys:
             return ActionResult(
                 success=False,
                 action="press_hotkey",
-                message="No keys provided",
+                message="No keys specified",
             )
-        
-        # Handle both string and list formats
-        if isinstance(keys, str):
-            keys = keys.split("+")
-        elif isinstance(keys, list):
-            pass  # Already a list
-        else:
-            keys = [str(keys)]
         
         try:
             pyautogui.hotkey(*keys)
@@ -49,12 +42,11 @@ class HotkeyAction(BaseAction):
                 success=True,
                 action="press_hotkey",
                 message=f"Pressed: {'+'.join(keys)}",
-                data={"keys": keys},
             )
         except Exception as e:
             return ActionResult(
                 success=False,
                 action="press_hotkey",
-                message=f"Could not press keys",
+                message=f"Failed to press keys",
                 error=str(e),
             )

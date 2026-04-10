@@ -1,5 +1,5 @@
 """
-Window action - Window management
+Window action
 """
 
 from __future__ import annotations
@@ -7,7 +7,8 @@ from __future__ import annotations
 import pyautogui
 
 from .base import BaseAction
-from ...core.agent import ActionResult, Intent
+from ...core.intent import Intent
+from ...core.result import ActionResult
 
 
 class WindowAction(BaseAction):
@@ -43,7 +44,7 @@ class WindowAction(BaseAction):
             return ActionResult(
                 success=False,
                 action="manage_window",
-                message="Could not minimize window",
+                message="Failed to minimize window",
                 error=str(e),
             )
     
@@ -60,7 +61,7 @@ class WindowAction(BaseAction):
             return ActionResult(
                 success=False,
                 action="manage_window",
-                message="Could not maximize window",
+                message="Failed to maximize window",
                 error=str(e),
             )
     
@@ -77,6 +78,6 @@ class WindowAction(BaseAction):
             return ActionResult(
                 success=False,
                 action="manage_window",
-                message="Could not close window",
+                message="Failed to close window",
                 error=str(e),
             )

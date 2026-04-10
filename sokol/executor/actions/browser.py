@@ -1,5 +1,5 @@
 """
-Browser action - Open URLs in browser
+Browser action
 """
 
 from __future__ import annotations
@@ -7,7 +7,8 @@ from __future__ import annotations
 import webbrowser
 
 from .base import BaseAction
-from ...core.agent import ActionResult, Intent
+from ...core.intent import Intent
+from ...core.result import ActionResult
 
 
 class BrowserAction(BaseAction):
@@ -26,18 +27,14 @@ class BrowserAction(BaseAction):
     
     def _open_url(self, intent: Intent) -> ActionResult:
         """Open URL in browser."""
-        url = intent.target or intent.params.get("url")
+        url = intent.params.get("url", intent.target)
         
         if not url:
             return ActionResult(
                 success=False,
                 action="open_url",
-                message="No URL provided",
+                message="No URL specified",
             )
-        
-        # Ensure URL has protocol
-        if not url.startswith("http://") and not url.startswith("https://"):
-            url = f"https://{url}"
         
         try:
             webbrowser.open(url)
@@ -45,12 +42,11 @@ class BrowserAction(BaseAction):
                 success=True,
                 action="open_url",
                 message=f"Opened: {url}",
-                data={"url": url},
             )
         except Exception as e:
             return ActionResult(
                 success=False,
                 action="open_url",
-                message=f"Could not open URL: {url}",
+                message=f"Failed to open {url}",
                 error=str(e),
             )

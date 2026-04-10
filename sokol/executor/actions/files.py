@@ -1,5 +1,5 @@
 """
-File action - File operations
+File action
 """
 
 from __future__ import annotations
@@ -8,7 +8,8 @@ import os
 from pathlib import Path
 
 from .base import BaseAction
-from ...core.agent import ActionResult, Intent
+from ...core.intent import Intent
+from ...core.result import ActionResult
 
 
 class FileAction(BaseAction):
@@ -29,38 +30,33 @@ class FileAction(BaseAction):
     
     def _search(self, intent: Intent) -> ActionResult:
         """Search for files."""
-        query = intent.target or intent.params.get("query")
-        search_dir = intent.params.get("directory", os.path.expanduser("~"))
+        query = intent.params.get("query", intent.target)
         
         if not query:
             return ActionResult(
                 success=False,
                 action="search_file",
-                message="No search query provided",
+                message="No query specified",
             )
         
         try:
-            search_path = Path(search_dir)
-            if not search_path.exists():
-                return ActionResult(
-                    success=False,
-                    action="search_file",
-                    message=f"Directory not found: {search_dir}",
-                )
-            
+            # Simple search in home directory
+            home = Path.home()
             results = []
-            query_lower = query.lower()
-            
-            # Search recursively
-            for item in search_path.rglob("*"):
-                if query_lower in item.name.lower():
-                    results.append(str(item))
+            for root, dirs, files in os.walk(home):
+                for file in files:
+                    if query.lower() in file.lower():
+                        results.append(os.path.join(root, file))
+                        if len(results) >= 10:
+                            break
+                if len(results) >= 10:
+                    break
             
             return ActionResult(
                 success=True,
                 action="search_file",
                 message=f"Found {len(results)} results for '{query}'",
-                data={"results": results[:20], "total": len(results)},
+                data={"results": results},
             )
         except Exception as e:
             return ActionResult(
@@ -72,35 +68,8 @@ class FileAction(BaseAction):
     
     def _open(self, intent: Intent) -> ActionResult:
         """Open file."""
-        path = intent.target or intent.params.get("path")
-        
-        if not path:
-            return ActionResult(
-                success=False,
-                action="open_file",
-                message="No file path provided",
-            )
-        
-        try:
-            path_obj = Path(path)
-            if not path_obj.exists():
-                return ActionResult(
-                    success=False,
-                    action="open_file",
-                    message=f"File not found: {path}",
-                )
-            
-            os.startfile(str(path_obj))
-            return ActionResult(
-                success=True,
-                action="open_file",
-                message=f"Opened: {path}",
-                data={"path": path},
-            )
-        except Exception as e:
-            return ActionResult(
-                success=False,
-                action="open_file",
-                message=f"Could not open file",
-                error=str(e),
-            )
+        return ActionResult(
+            success=False,
+            action="open_file",
+            message="Open file not implemented yet",
+        )

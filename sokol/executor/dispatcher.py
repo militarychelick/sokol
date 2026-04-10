@@ -6,72 +6,46 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..core.agent import ActionResult, Intent
-from .actions.app_launcher import AppLauncherAction
-from .actions.browser import BrowserAction
-from .actions.hotkeys import HotkeyAction
-from .actions.files import FileAction
-from .actions.windows import WindowAction
-from .actions.system import SystemAction
+from ..core.intent import Intent
+from ..core.result import ActionResult
 
 
 class ActionDispatcher:
     """
-    Dispatches actions to appropriate action modules.
+    Dispatcher - routing only, no business logic.
     
-    This is THE single dispatcher - no other routing logic allowed.
+    action_type → action module → execute()
     """
     
-    # Action type to module mapping
     ACTION_MAP = {
-        "launch_app": AppLauncherAction,
-        "close_app": AppLauncherAction,
-        "switch_app": AppLauncherAction,
-        "open_url": BrowserAction,
-        "press_hotkey": HotkeyAction,
-        "search_file": FileAction,
-        "open_file": FileAction,
-        "manage_window": WindowAction,
-        "system_action": SystemAction,
+        "launch_app": "app_launcher",
+        "close_app": "app_launcher",
+        "switch_app": "app_launcher",
+        "open_url": "browser",
+        "press_hotkey": "hotkeys",
+        "search_file": "files",
+        "open_file": "files",
+        "manage_window": "windows",
+        "system_action": "system",
     }
     
     def __init__(self) -> None:
-        # Initialize action modules
         self._actions: dict[str, Any] = {}
-        for action_type, action_class in self.ACTION_MAP.items():
-            self._actions[action_type] = action_class()
     
     def dispatch(self, intent: Intent) -> ActionResult:
-        """
-        Dispatch intent to appropriate action module (synchronous).
-        
-        Args:
-            intent: Parsed intent with action_type, target, params
-        
-        Returns:
-            ActionResult from action execution
-        """
+        """Dispatch intent to appropriate action module (synchronous)."""
         action_type = intent.action_type
         
-        # Validation: unknown action_type
-        if action_type not in self._actions:
+        if action_type not in self.ACTION_MAP:
             return ActionResult(
                 success=False,
                 action=action_type,
                 message=f"Unknown action type: {action_type}",
             )
         
-        # Validation: missing required fields
-        if not self._validate_intent(intent):
-            return ActionResult(
-                success=False,
-                action=action_type,
-                message="Invalid intent: missing required fields",
-            )
+        module_name = self.ACTION_MAP[action_type]
+        action_module = self._get_action_module(module_name)
         
-        action_module = self._actions[action_type]
-        
-        # Fail-safe: catch all exceptions
         try:
             result = action_module.execute(intent)
             return result
@@ -83,36 +57,32 @@ class ActionDispatcher:
                 error=str(e),
             )
     
-    def _validate_intent(self, intent: Intent) -> bool:
-        """Lightweight validation before execution."""
-        # Check action_type
-        if not intent.action_type:
-            return False
+    def _get_action_module(self, module_name: str) -> Any:
+        """Get or create action module."""
+        if module_name not in self._actions:
+            if module_name == "app_launcher":
+                from .actions.app_launcher import AppLauncherAction
+                self._actions[module_name] = AppLauncherAction()
+            elif module_name == "browser":
+                from .actions.browser import BrowserAction
+                self._actions[module_name] = BrowserAction()
+            elif module_name == "hotkeys":
+                from .actions.hotkeys import HotkeyAction
+                self._actions[module_name] = HotkeyAction()
+            elif module_name == "files":
+                from .actions.files import FileAction
+                self._actions[module_name] = FileAction()
+            elif module_name == "windows":
+                from .actions.windows import WindowAction
+                self._actions[module_name] = WindowAction()
+            elif module_name == "system":
+                from .actions.system import SystemAction
+                self._actions[module_name] = SystemAction()
         
-        # Check required target for certain actions
-        target_required_actions = ["launch_app", "close_app", "switch_app", "open_url", "press_hotkey"]
-        if intent.action_type in target_required_actions:
-            if not intent.target and not intent.params.get("target"):
-                return False
-        
-        return True
+        return self._actions[module_name]
     
     async def dispatch_async(self, intent: Intent) -> ActionResult:
-        """
-        Async wrapper for dispatch (for agent compatibility).
-        
-        Runs synchronous dispatch in thread pool.
-        """
+        """Async wrapper for dispatch (for agent compatibility)."""
         import asyncio
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self.dispatch, intent)
-    
-    async def execute_step(self, step: Any) -> ActionResult:
-        """Execute a single step (for planned tasks)."""
-        # Convert step to intent and dispatch
-        intent = Intent(
-            action_type=step.action,
-            target=step.params.get("target"),
-            params=step.params,
-        )
-        return await self.dispatch_async(intent)

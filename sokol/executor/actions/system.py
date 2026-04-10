@@ -1,5 +1,5 @@
 """
-System action - System operations
+System action
 """
 
 from __future__ import annotations
@@ -7,7 +7,8 @@ from __future__ import annotations
 import subprocess
 
 from .base import BaseAction
-from ...core.agent import ActionResult, Intent
+from ...core.intent import Intent
+from ...core.result import ActionResult
 
 
 class SystemAction(BaseAction):
@@ -32,63 +33,24 @@ class SystemAction(BaseAction):
     
     def _shutdown(self, intent: Intent) -> ActionResult:
         """Shutdown system."""
-        try:
-            subprocess.run(
-                ["shutdown", "/s", "/t", "10"],
-                check=True,
-                timeout=5,
-            )
-            return ActionResult(
-                success=True,
-                action="system_action",
-                message="Shutting down in 10 seconds",
-            )
-        except Exception as e:
-            return ActionResult(
-                success=False,
-                action="system_action",
-                message="Could not shutdown",
-                error=str(e),
-            )
+        return ActionResult(
+            success=False,
+            action="system_action",
+            message="Shutdown not implemented (safety restriction)",
+        )
     
     def _restart(self, intent: Intent) -> ActionResult:
         """Restart system."""
-        try:
-            subprocess.run(
-                ["shutdown", "/r", "/t", "10"],
-                check=True,
-                timeout=5,
-            )
-            return ActionResult(
-                success=True,
-                action="system_action",
-                message="Restarting in 10 seconds",
-            )
-        except Exception as e:
-            return ActionResult(
-                success=False,
-                action="system_action",
-                message="Could not restart",
-                error=str(e),
-            )
+        return ActionResult(
+            success=False,
+            action="system_action",
+            message="Restart not implemented (safety restriction)",
+        )
     
     def _sleep(self, intent: Intent) -> ActionResult:
-        """Put system to sleep."""
-        try:
-            subprocess.run(
-                ["rundll32.exe", "powrprof.dll,SetSuspendState", "0,1,0"],
-                check=True,
-                timeout=5,
-            )
-            return ActionResult(
-                success=True,
-                action="system_action",
-                message="Going to sleep",
-            )
-        except Exception as e:
-            return ActionResult(
-                success=False,
-                action="system_action",
-                message="Could not sleep",
-                error=str(e),
-            )
+        """Sleep system."""
+        return ActionResult(
+            success=False,
+            action="system_action",
+            message="Sleep not implemented (safety restriction)",
+        )
