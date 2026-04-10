@@ -1,0 +1,60 @@
+# Sokol v2 Default Configuration
+
+agent:
+  name: "Sokol"
+  language: "ru"
+  response_style: "friendly"  # friendly, formal, minimal
+
+voice:
+  wake_word: null  # null = push-to-talk
+  ptt_key: "f12"
+  tts_voice: "ru-RU-DmitryNeural"
+  tts_rate: "+0%"
+  stt_model: "medium"  # tiny, base, small, medium, large
+  stt_language: null  # null = auto-detect
+  vad_sensitivity: 3  # 1-5, higher = more sensitive
+  listen_timeout: 30.0
+
+llm:
+  local:
+    provider: "ollama"
+    model: "llama3"
+    base_url: "http://localhost:11434"
+    timeout: 60.0
+    max_tokens: 2048
+  cloud:
+    provider: "openai"
+    model: "gpt-4o"
+    api_key: null  # Set via OPENAI_API_KEY env var
+    timeout: 30.0
+    max_tokens: 4096
+  routing:
+    prefer_local: true
+    cloud_for_complex: true
+    cloud_for_reasoning: true
+    local_for_private: true
+    complexity_threshold: 5  # 1-10
+
+safety:
+  code_execution: false
+  require_confirmation:
+    - file_delete
+    - file_modify
+    - system_settings
+    - unknown_urls
+  audit_all_actions: true
+  max_retries: 3
+
+memory:
+  session_limit: 100
+  profile_auto_save: true
+  habit_min_frequency: 3
+  retention_days: 30
+
+gui:
+  show_on_start: true
+  minimize_to_tray: true
+  start_minimized: false
+  theme: "dark"
+  window_width: 800
+  window_height: 600

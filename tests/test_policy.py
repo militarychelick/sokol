@@ -1,26 +1,38 @@
-# -*- coding: utf-8 -*-
-from sokol import policy
+"""
+Tests for safety policy
+"""
+
+import pytest
+
+from sokol.policy.safety import SafetyPolicy
+from sokol.core.config import SafetyConfig
+from sokol.core.constants import ActionCategory, SafetyLevel
 
 
-class _G:
-    _pending_secure_action = None
+def test_safety_classification():
+    """Test safety level classification."""
+    config = SafetyConfig()
+    policy = SafetyPolicy(config)
+    
+    # Test safe actions
+    level = policy.classify(ActionCategory.APP_LAUNCH, {})
+    assert level == SafetyLevel.SAFE
+    
+    # Test caution actions
+    level = policy.classify(ActionCategory.APP_CLOSE, {})
+    assert level == SafetyLevel.CAUTION
+    
+    # Test dangerous actions
+    level = policy.classify(ActionCategory.FILE_DELETE, {})
+    assert level == SafetyLevel.DANGEROUS
 
 
-def test_policy_skips_when_confirmed():
-    g = _G()
-    action = {"type": "terminal_ps", "target": "dir", "params": {"_security_confirmed": True}}
-    assert policy.prepare_security_confirmation(action, g) is None
-
-
-def test_policy_terminal_intercept():
-    g = _G()
-    action = {"type": "terminal_cmd", "target": "echo hi", "params": {}}
-    r = policy.prepare_security_confirmation(action, g)
-    assert r is not None
-    assert r[1] == "__CONFIRM_TERMINAL__"
-    assert g._pending_secure_action["type"] == "terminal_cmd"
-
-
-def test_mark_action_confirmed():
-    a = policy.mark_action_confirmed({"type": "wifi_passwords", "params": {}})
-    assert a["params"]["_security_confirmed"] is True
+def test_dangerous_patterns():
+    """Test dangerous pattern detection."""
+    config = SafetyConfig()
+    policy = SafetyPolicy(config)
+    
+    # Test dangerous file patterns
+    entities = {"paths": ["test.exe"]}
+    level = policy.classify(ActionCategory.FILE_MODIFY, entities)
+    assert level == SafetyLevel.DANGEROUS

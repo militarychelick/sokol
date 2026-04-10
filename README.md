@@ -1,47 +1,69 @@
-# SOKOL
+# Sokol v2
 
-Локальный ИИ-ассистент для Windows (Ollama).
+Voice AI Agent for Windows.
 
-## Быстрый старт
+## Features
 
-1. Создайте venv и активируйте его.
-2. Установите зависимости (обязательно, иначе будет `No module named 'pydantic'`):
+- **Voice-First Interface**: Speak to control your computer
+- **Hybrid Intelligence**: Local LLM (Ollama) + Cloud (OpenAI)
+- **Windows Automation**: Launch apps, control windows, manage files
+- **Safety-First**: Dangerous actions require confirmation
+- **Memory**: Learns your habits and preferences
+- **Modern GUI**: PyQt6 control panel with system tray
 
-   ```powershell
-   pip install -r requirements.txt
-   ```
+## Requirements
 
-   Или: `.\scripts\bootstrap_venv.ps1` / `scripts\install_deps.bat`
+- Windows 10/11
+- Python 3.10+
+- [Ollama](https://ollama.ai) (for local LLM)
 
-3. Установите [Ollama](https://ollama.com) и модель из `sokol/config.py` (например `ollama pull llama3.2:3b`).
-4. Запуск:
+## Installation
 
-   ```text
-   python run.py
-   ```
+```bash
+# Clone
+git clone https://github.com/user/sokol.git
+cd sokol
 
-   Если Windows блокирует повышение прав для `venv\Scripts\python.exe` (UAC / Smart App Control, код 5), используйте:
+# Create virtual environment
+python -m venv .venv
+.venv\Scripts\activate
 
-   ```text
-   python run.py --skip-admin-check
-   ```
+# Install dependencies
+pip install -r requirements.txt
 
-   или переменную окружения `SOKOL_SKIP_ELEVATION=1` (не показывать запрос UAC и не пытаться повысить права).
+# Install Ollama model
+ollama pull llama3
 
-При ошибке elevation с **кодом 5** в консоли см. подсказку `[AdminHelper]` — это обычно блокировка доверенного запуска для интерпретатора из `venv`.
+# Run
+python main.py
+```
 
-## Опционально: шахматы
+## Configuration
 
-Для партий лучше отдельный движок (Stockfish, сайт с API): Сокол может только открыть его или вызвать скрипт. Для проверки ходов в коде: модуль `sokol.chess_helpers` — `pip install chess` или `pip install ".[chess]"`.
+Edit `config/default.yaml` to customize:
+- Voice settings (TTS voice, STT model)
+- LLM settings (local model, API keys)
+- Safety preferences
+- Memory options
 
-## GPU и скорость Ollama
+## Usage
 
-Сокол передаёт в Ollama `num_gpu` (по умолчанию все слои). Если в `ollama ps` модель на **CPU**, установите сборку Ollama с **CUDA** (NVIDIA) или **ROCm** (AMD) с сайта ollama.com и актуальные драйверы. Переменная **`OLLAMA_NUM_GPU`**: `99` — все слои на GPU, `0` — принудительно CPU. Для EasyOCR: **`SOKOL_EASYOCR_GPU=1`** или **`0`** (иначе CUDA включается, если доступна).
+1. **Push-to-Talk**: Hold F12 and speak
+2. **Text Input**: Type in the GUI panel
+3. **Quick Actions**: Use system tray menu
 
-## Модели и внешние API
+### Example Commands
 
-Сменить модель: `OLLAMA_MODEL` в `sokol/config.py` или свой `Modelfile`. Быстрее/умнее локально — пробуйте `qwen2.5`, `mistral`, `llama3.1` (тяжелее по VRAM). Стабильного «бесплатного облака уровня платного» нет; для опционального облака нужен свой ключ (Groq, OpenRouter и т.д.) и отдельная ветка в коде.
+- "Open Chrome"
+- "Play music on YouTube"
+- "Search for documents"
+- "Set up my workspace"
+- "What time is it?"
 
-## Права администратора
+## Architecture
 
-Полный доступ к системным операциям требует админа. Повышение через UAC для интерпретатора из venv иногда **блокируется политикой** («издатель неизвестен»). Варианты: запуск без админа (`--skip-admin-check`), системный Python с python.org, или настройка Smart App Control у администратора ПК.
+See [Architecture Plan](.windsurf/plans/sokol-v2-architecture-f4dbc5.md) for details.
+
+## License
+
+MIT

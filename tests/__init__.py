@@ -1,1 +1,3 @@
-# Tests package
+"""
+Tests for Sokol v2
+"""

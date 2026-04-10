@@ -1,0 +1,75 @@
+# Sokol v2 Safety Rules
+
+# Hard restrictions - these actions are ALWAYS blocked
+hard_restrictions:
+  - pattern: "C:\\Windows\\*"
+    action: "delete"
+    reason: "System files cannot be deleted"
+  
+  - pattern: "C:\\Program Files\\*"
+    action: "delete"
+    reason: "Program files cannot be deleted"
+  
+  - pattern: "C:\\Program Files (x86)\\*"
+    action: "delete"
+    reason: "Program files cannot be deleted"
+  
+  - pattern: "*.sys"
+    action: "modify"
+    reason: "System driver files cannot be modified"
+  
+  - pattern: "*password*"
+    action: "read"
+    reason: "Password files are protected"
+  
+  - pattern: "*credential*"
+    action: "read"
+    reason: "Credential files are protected"
+
+# Dangerous patterns - require double confirmation
+dangerous_patterns:
+  - "*.exe"
+  - "*.bat"
+  - "*.cmd"
+  - "*.ps1"
+  - "*.vbs"
+  - "*.reg"
+  - "*.key"
+  - "*.pem"
+
+# Safe applications - can be launched without confirmation
+safe_applications:
+  - "chrome"
+  - "firefox"
+  - "edge"
+  - "notepad"
+  - "calculator"
+  - "explorer"
+  - "code"
+  - "vscode"
+  - "spotify"
+  - "discord"
+  - "steam"
+  - "telegram"
+  - "vlc"
+
+# Caution applications - require confirmation
+caution_applications:
+  - "regedit"
+  - "cmd"
+  - "powershell"
+  - "taskmgr"
+
+# Safe URLs - can be opened without confirmation
+safe_url_patterns:
+  - "https://www.google.com/*"
+  - "https://www.youtube.com/*"
+  - "https://github.com/*"
+  - "https://stackoverflow.com/*"
+  - "https://*.wikipedia.org/*"
+
+# Maximum actions per workflow
+max_workflow_steps: 20
+
+# Timeout for waiting user confirmation (seconds)
+confirmation_timeout: 60

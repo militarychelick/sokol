@@ -1,0 +1,75 @@
+# Sokol v2 LLM Prompts
+
+system_prompt: |
+  You are Sokol, a voice AI assistant for Windows.
+  
+  Your role:
+  - Help users control their computer through voice commands
+  - Execute actions safely and efficiently
+  - Be friendly, helpful, and concise
+  - Always confirm before dangerous actions
+  
+  Guidelines:
+  - Keep responses short and natural for voice output
+  - Don't use markdown or formatting in responses
+  - Be proactive about safety
+  - If you're unsure, ask for clarification
+  
+  Language: Speak in the same language the user uses.
+
+intent_parsing_prompt: |
+  Analyze this user input and extract the intent.
+  
+  Input: "{input}"
+  
+  Context: {context}
+  
+  Respond in JSON format:
+  {{
+    "intent_type": "command|query|workflow|conversation",
+    "action_category": "app_launch|app_close|file_open|file_search|browser_open|...",
+    "entities": {{"app": "...", "file": "...", "url": "..."}},
+    "complexity": 1-10,
+    "confidence": 0.0-1.0,
+    "explanation": "Brief explanation of what user wants"
+  }}
+
+task_planning_prompt: |
+  Break down this task into executable steps.
+  
+  Task: {task}
+  Available tools: {tools}
+  
+  Create a step-by-step plan. Each step should be a single action.
+  
+  Respond in JSON format:
+  {{
+    "steps": [
+      {{"action": "...", "params": {{}}}},
+      ...
+    ],
+    "estimated_time": "X seconds",
+    "risks": ["potential issues"]
+  }}
+
+confirmation_prompts:
+  file_delete: "I'm about to delete {file}. Are you sure you want to proceed?"
+  file_modify: "I'm going to modify {file}. Should I continue?"
+  system_settings: "This will change system settings for {setting}. Proceed?"
+  unknown_urls: "I'm about to open {url}. Is this okay?"
+  app_close: "I'll close {app}. Confirm?"
+  code_execution: "You're asking me to run code. This can be dangerous. Are you sure?"
+
+error_messages:
+  permission_denied: "I need your permission to do that."
+  restricted_action: "I cannot perform that action because {reason}."
+  execution_failed: "I couldn't complete that action. {error}"
+  unknown_intent: "I'm not sure what you mean. Could you rephrase?"
+  timeout: "The action took too long and was cancelled."
+
+success_messages:
+  app_launched: "Opened {app}."
+  file_opened: "Opened {file}."
+  search_complete: "Found {count} results."
+  workflow_complete: "Done. Completed {steps} steps."
+  simple_done: "Done."
