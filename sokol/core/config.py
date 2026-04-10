@@ -15,7 +15,8 @@ class LLMProviderConfig(BaseModel):
     """LLM provider configuration."""
 
     model: str = "gpt-4o"
-    api_key_env: str = "OPENAI_API_KEY"
+    api_key_env: str | None = None
+    api_key: str | None = None
     max_tokens: int = 1024
     temperature: float = 0.7
     base_url: str | None = None
@@ -146,7 +147,14 @@ class Config(BaseModel):
             tomli_w.dump(data, f)
 
     def get_api_key(self, provider: str) -> str | None:
-        """Get API key for provider from environment."""
+        """Get API key for provider from config or environment."""
+        # First check config file
+        if provider == "openai" and self.llm.openai.api_key:
+            return self.llm.openai.api_key
+        if provider == "anthropic" and self.llm.anthropic.api_key:
+            return self.llm.anthropic.api_key
+
+        # Fallback to environment variable
         provider_configs = {
             "openai": self.llm.openai.api_key_env,
             "anthropic": self.llm.anthropic.api_key_env,
