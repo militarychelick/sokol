@@ -162,6 +162,25 @@ class RuleBasedIntentHandler:
             logger.error_data("Intent execution failed", {"error": str(e)})
             return False, f"Error: {str(e)}"
 
+    def propose_action(self, intent: Intent) -> dict[str, Any]:
+        """
+        Propose action from intent (does NOT execute).
+
+        Returns action proposal dict for safety validation.
+        """
+        if not intent.tool:
+            return {
+                "action_type": "text_response",
+                "text": f"Cannot execute intent: {intent.action}",
+            }
+
+        return {
+            "action_type": "tool_call",
+            "tool": intent.tool,
+            "args": intent.args or {},
+            "source": "rule_based",
+        }
+
     def _format_result(self, action: str, data: Any) -> str:
         """Format tool result for user."""
         if action == "system_info":

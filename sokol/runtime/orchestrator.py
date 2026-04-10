@@ -13,6 +13,7 @@ from sokol.runtime.events import EventBus
 from sokol.runtime.state import AgentStateMachine
 from sokol.runtime.tasks import TaskManager
 from sokol.runtime.intent import RuleBasedIntentHandler, Intent
+from sokol.runtime.router import IntentRouter, ProposedAction, DecisionSource
 from sokol.integrations.llm import LLMManager, LLMMessage
 from sokol.tools.registry import get_registry
 
@@ -39,14 +40,11 @@ class Orchestrator:
         self._event_bus = EventBus()
         self._task_manager = TaskManager()
 
-        # LLM and tools
-        self._llm_manager = LLMManager(config)
+        # Unified intent router (replaces LLM + intent handler)
+        self._intent_router = IntentRouter()
         self._tool_registry = get_registry()
 
-        # LLM-free fallback
-        self._intent_handler = RuleBasedIntentHandler()
-
-        # Conversation history
+        # Conversation history (for LLM context)
         self._conversation_history: list[LLMMessage] = []
 
         # Watchdog state tracking
@@ -270,46 +268,29 @@ class Orchestrator:
         Strict agent execution loop with clear phases.
 
         Phases:
-        1. LLM call (with timeout) - returns JSON
-        2. Parse response type
-        3. Handle based on type (tool_call, final_answer, clarification)
+        1. Route input through IntentRouter (LLM > rule-based > rejected)
+        2. Safety validation for tool calls
+        3. Execute tool (if validated)
         4. Emit response
         5. State transition to IDLE
         """
         try:
-            # PHASE 1: LLM Call with timeout - returns parsed JSON
-            llm_response = self._call_llm_with_timeout(user_input)
+            # PHASE 1: Route input through IntentRouter
+            proposed_action = self._intent_router.route(user_input)
 
-            # PHASE 2: Parse response type
-            response_type = llm_response.get("type")
+            # PHASE 2: Safety validation for tool calls
+            if proposed_action.action_type == "tool_call":
+                if not self._validate_safety(proposed_action):
+                    final_response = "Action denied by safety layer"
+                else:
+                    # PHASE 3: Execute tool
+                    tool_result = self._execute_tool_action(proposed_action)
 
-            # PHASE 3: Handle based on type
-            if response_type == "tool_call":
-                # Execute tool
-                tool_name = llm_response.get("tool")
-                args = llm_response.get("args", {})
-
-                tool_result = self._execute_tool({"tool_name": tool_name, "params": args})
-
-                # Generate final response with tool result
-                final_response = self._generate_final_response(tool_result)
-
-            elif response_type == "final_answer":
-                # Direct response to user
-                final_response = llm_response.get("text", "No response text")
-
-            elif response_type == "clarification":
-                # Ask user for clarification
-                question = llm_response.get("question", "")
-                final_response = f"Question: {question}"
-
+                    # Generate final response
+                    final_response = self._format_tool_result(tool_result)
             else:
-                # Unknown type, fallback
-                logger.warning_data(
-                    "Unknown response type",
-                    {"type": response_type},
-                )
-                final_response = llm_response.get("text", "Unknown response type")
+                # Direct response (final_answer or clarification)
+                final_response = proposed_action.text or "No response"
 
             # PHASE 4: Emit response
             self.emit_response(final_response)
@@ -322,243 +303,73 @@ class Orchestrator:
             self.emit_response(f"Error: {str(e)}")
             self._state_machine.transition(AgentState.ERROR, "agent_loop_error")
 
-    def _call_llm_with_timeout(self, user_input: str) -> dict[str, Any]:
+    def _validate_safety(self, action: ProposedAction) -> bool:
         """
-        Call LLM with timeout safety and JSON parsing.
+        Validate proposed action through safety layer.
 
-        Falls back to rule-based intent handler if LLM fails.
-
-        Returns parsed JSON response dict with type field.
+        Returns True if action is safe to execute.
         """
-        import json
+        # Import safety layer
+        from sokol.safety.risk import RiskAssessor, assess_tool_risk
 
-        # Add user message to history
-        self._conversation_history.append(
-            LLMMessage(role="user", content=user_input)
-        )
+        if not action.tool:
+            return True  # Text responses are always safe
 
-        # Build system prompt with available tools
-        system_prompt = self._build_system_prompt()
+        # Assess risk
+        risk_level = assess_tool_risk(action.tool, action.args or {})
 
-        # Add system message
-        messages = [LLMMessage(role="system", content=system_prompt)]
-        messages.extend(self._conversation_history)
+        # If dangerous, require confirmation (simplified: deny for now)
+        from sokol.core.types import RiskLevel
+        if risk_level == RiskLevel.DANGEROUS:
+            logger.warning_data(
+                "Dangerous action denied",
+                {"tool": action.tool, "risk": risk_level.value},
+            )
+            return False
 
-        # Get response from LLM with timeout and retry for invalid JSON
-        logger.info("Calling LLM...")
+        return True
 
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                # Use fallback timeout from config
-                response = self._llm_manager.complete(messages, use_fallback=True)
-
-                logger.info_data(
-                    "LLM response received",
-                    {
-                        "provider": response.provider,
-                        "latency_ms": response.latency_ms,
-                        "attempt": attempt + 1,
-                    },
-                )
-
-                # Try to parse JSON
-                try:
-                    parsed = json.loads(response.content.strip())
-
-                    # Validate JSON has required type field
-                    if "type" not in parsed:
-                        raise ValueError("Missing 'type' field in JSON response")
-
-                    # Add to history
-                    self._conversation_history.append(
-                        LLMMessage(role="assistant", content=response.content)
-                    )
-
-                    return parsed
-
-                except json.JSONDecodeError as e:
-                    logger.warning_data(
-                        "LLM response is not valid JSON",
-                        {"attempt": attempt + 1, "error": str(e)},
-                    )
-
-                    if attempt < max_retries - 1:
-                        # Retry with error feedback
-                        messages.append(
-                            LLMMessage(
-                                role="system",
-                                content=f"Error: Your response was not valid JSON. Please respond with valid JSON only. Error: {str(e)}",
-                            )
-                        )
-                        continue
-                    else:
-                        # Fallback to intent handler
-                        logger.warning("All JSON parsing attempts failed, using intent handler fallback")
-                        return self._fallback_to_intent_handler(user_input)
-
-            except Exception as e:
-                logger.error_data("LLM call failed", {"error": str(e)})
-                # Fallback to intent handler
-                logger.warning("LLM call failed, using intent handler fallback")
-                return self._fallback_to_intent_handler(user_input)
-
-        # Should not reach here
-        return self._fallback_to_intent_handler(user_input)
-
-    def _fallback_to_intent_handler(self, user_input: str) -> dict[str, Any]:
+    def _execute_tool_action(self, action: ProposedAction) -> dict[str, Any]:
         """
-        Fallback to rule-based intent handler when LLM fails.
+        Execute tool action with state transition.
 
-        Returns JSON response in the same format as LLM would.
+        Returns tool result dict.
         """
-        logger.info("Using LLM-free intent handler")
-
-        # Try to parse intent
-        intent = self._intent_handler.parse_intent(user_input)
-
-        if intent and intent.tool:
-            # Execute intent
-            success, result_text = self._intent_handler.execute_intent(intent)
-
-            if success:
-                return {
-                    "type": "final_answer",
-                    "text": result_text,
-                }
-            else:
-                return {
-                    "type": "final_answer",
-                    "text": f"Failed to execute command: {result_text}",
-                }
-        else:
-            # No intent matched
-            help_text = self._intent_handler.get_help()
-            return {
-                "type": "final_answer",
-                "text": f"I couldn't understand that command. {help_text}",
-            }
-
-    def _execute_tool(self, tool_call: dict[str, Any]) -> str:
-        """
-        Execute tool with state transition.
-
-        Returns tool result string.
-        """
-        tool_name = tool_call["tool_name"]
-        params = tool_call["params"]
+        tool_name = action.tool
+        args = action.args or {}
 
         logger.info_data(
             "Executing tool",
-            {"tool": tool_name, "params": str(params)[:100]},
+            {"tool": tool_name, "source": action.source.value, "args": str(args)[:100]},
         )
 
         # Transition to EXECUTING
         self._state_machine.transition(AgentState.EXECUTING, f"tool:{tool_name}")
 
         try:
-            result = self._tool_registry.execute(tool_name, params)
+            result = self._tool_registry.execute(tool_name, args)
 
-            if result.success:
-                return f"Tool {tool_name} succeeded: {str(result.data)[:200]}"
-            else:
-                return f"Tool {tool_name} failed: {result.error}"
+            return {
+                "success": result.success,
+                "data": result.data if result.success else None,
+                "error": result.error if not result.success else None,
+            }
         except Exception as e:
             logger.error_data("Tool execution error", {"error": str(e)})
-            return f"Tool {tool_name} error: {str(e)}"
+            return {
+                "success": False,
+                "error": str(e),
+            }
 
-    def _generate_final_response(self, tool_result: str) -> str:
-        """
-        Generate final response after tool execution.
-
-        Sends tool result back to LLM for final response.
-        """
-        # Build messages with tool result
-        system_prompt = self._build_system_prompt()
-        messages = [LLMMessage(role="system", content=system_prompt)]
-        messages.extend(self._conversation_history)
-
-        # Add tool result
-        messages.append(
-            LLMMessage(role="system", content=f"Tool result: {tool_result}")
-        )
-
-        try:
-            final_response = self._llm_manager.complete(messages, use_fallback=True)
-
-            # Parse JSON response
-            import json
-            parsed = json.loads(final_response.content.strip())
-
-            # Add to history
-            self._conversation_history.append(
-                LLMMessage(role="assistant", content=final_response.content)
-            )
-
-            # Return text from final_answer type
-            if parsed.get("type") == "final_answer":
-                return parsed.get("text", f"Tool executed. Result: {tool_result}")
-            else:
-                # Fallback
-                return f"Tool executed. Result: {tool_result}"
-
-        except Exception as e:
-            logger.error_data("Final response generation failed", {"error": str(e)})
-            # Fallback to simple response
-            return f"Tool executed. Result: {tool_result}"
-
-    def _build_system_prompt(self) -> str:
-        """Build system prompt with available tools and strict JSON schema."""
-        tool_schemas = self._tool_registry.list_schemas()
-
-        tools_desc = "Available tools:\n"
-        for schema in tool_schemas:
-            tools_desc += f"- {schema.name}: {schema.description}\n"
-            tools_desc += f"  Parameters (JSON Schema): {schema.parameters}\n"
-            tools_desc += f"  Risk: {schema.risk_level.value}\n"
-
-        base_prompt = f"""You are {self._config.agent.name}, a Windows AI assistant.
-
-Your role:
-- Help users manage their Windows PC through text commands
-- Use available tools to accomplish tasks
-- Ask for confirmation before dangerous operations
-- Provide brief, clear responses
-
-{tools_desc}
-
-STRICT OUTPUT FORMAT:
-You MUST respond with valid JSON only. No free-form text allowed.
-
-Response formats:
-
-1. Tool Call (when you need to execute a tool):
-{{
-  "type": "tool_call",
-  "tool": "tool_name",
-  "args": {{"param": "value"}}
-}}
-
-2. Final Answer (when no tool needed):
-{{
-  "type": "final_answer",
-  "text": "Your response text"
-}}
-
-3. Clarification (when you need more info):
-{{
-  "type": "clarification",
-  "question": "Your question"
-}}
-
-Examples:
-- To open notepad: {{"type": "tool_call", "tool": "app_launcher", "args": {{"app_name": "notepad"}}}}
-- To answer a question: {{"type": "final_answer", "text": "Here's the information..."}}
-- To ask for more info: {{"type": "clarification", "question": "Which file do you want to read?"}}
-
-IMPORTANT: Always return valid JSON. Never include text outside the JSON object.
-"""
-        return base_prompt
+    def _format_tool_result(self, result: dict[str, Any]) -> str:
+        """Format tool result for user."""
+        if result["success"]:
+            data = result.get("data")
+            if isinstance(data, dict):
+                return f"Success: {data}"
+            return f"Success: {data}"
+        else:
+            return f"Failed: {result.get('error', 'Unknown error')}"
 
     def emit_response(self, text: str, source: str = "agent") -> None:
         """Emit a response to the user."""
