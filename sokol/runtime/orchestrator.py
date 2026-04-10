@@ -12,6 +12,7 @@ from sokol.observability.logging import get_logger, setup_logging
 from sokol.runtime.events import EventBus
 from sokol.runtime.state import AgentStateMachine
 from sokol.runtime.tasks import TaskManager
+from sokol.runtime.intent import RuleBasedIntentHandler, Intent
 from sokol.integrations.llm import LLMManager, LLMMessage
 from sokol.tools.registry import get_registry
 
@@ -41,6 +42,9 @@ class Orchestrator:
         # LLM and tools
         self._llm_manager = LLMManager(config)
         self._tool_registry = get_registry()
+
+        # LLM-free fallback
+        self._intent_handler = RuleBasedIntentHandler()
 
         # Conversation history
         self._conversation_history: list[LLMMessage] = []
@@ -322,6 +326,8 @@ class Orchestrator:
         """
         Call LLM with timeout safety and JSON parsing.
 
+        Falls back to rule-based intent handler if LLM fails.
+
         Returns parsed JSON response dict with type field.
         """
         import json
@@ -387,26 +393,51 @@ class Orchestrator:
                         )
                         continue
                     else:
-                        # Fallback to default response
-                        logger.error("All JSON parsing attempts failed, using fallback")
-                        return {
-                            "type": "final_answer",
-                            "text": "I encountered an error processing your request. Please try again."
-                        }
+                        # Fallback to intent handler
+                        logger.warning("All JSON parsing attempts failed, using intent handler fallback")
+                        return self._fallback_to_intent_handler(user_input)
 
             except Exception as e:
                 logger.error_data("LLM call failed", {"error": str(e)})
-                # Return fallback response
-                return {
-                    "type": "final_answer",
-                    "text": "I encountered an error processing your request. Please try again."
-                }
+                # Fallback to intent handler
+                logger.warning("LLM call failed, using intent handler fallback")
+                return self._fallback_to_intent_handler(user_input)
 
         # Should not reach here
-        return {
-            "type": "final_answer",
-            "text": "I encountered an error processing your request. Please try again."
-        }
+        return self._fallback_to_intent_handler(user_input)
+
+    def _fallback_to_intent_handler(self, user_input: str) -> dict[str, Any]:
+        """
+        Fallback to rule-based intent handler when LLM fails.
+
+        Returns JSON response in the same format as LLM would.
+        """
+        logger.info("Using LLM-free intent handler")
+
+        # Try to parse intent
+        intent = self._intent_handler.parse_intent(user_input)
+
+        if intent and intent.tool:
+            # Execute intent
+            success, result_text = self._intent_handler.execute_intent(intent)
+
+            if success:
+                return {
+                    "type": "final_answer",
+                    "text": result_text,
+                }
+            else:
+                return {
+                    "type": "final_answer",
+                    "text": f"Failed to execute command: {result_text}",
+                }
+        else:
+            # No intent matched
+            help_text = self._intent_handler.get_help()
+            return {
+                "type": "final_answer",
+                "text": f"I couldn't understand that command. {help_text}",
+            }
 
     def _execute_tool(self, tool_call: dict[str, Any]) -> str:
         """
