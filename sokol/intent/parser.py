@@ -1,112 +1,97 @@
 """
-Intent parser - Extract structured intent from user text
+Intent parser v2 - Deterministic intent parsing
 """
 
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from ..core.agent import Intent
 from ..core.config import Config
-from ..core.constants import ActionCategory, IntentType
+from ..core.constants import SafetyLevel
 from ..core.exceptions import IntentError
 
 
 class IntentParser:
     """
-    Parses user text into structured Intent objects.
+    Deterministic intent parser - no special cases, no hacks.
     
-    Uses LLM to understand natural language commands.
+    Pipeline:
+    raw_text → normalize() → match_action_type() → extract_target() → build_intent()
     """
     
-    # Keywords for quick classification (no LLM needed)
-    QUICK_PATTERNS: dict[str, tuple[IntentType, ActionCategory]] = {
-        # Browser - English (specific patterns FIRST)
-        "open youtube": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
-        "open github": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
-        "open google": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
-        
-        # Browser - Russian (specific patterns FIRST)
-        "открой youtube": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
-        "открой github": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
-        "открой google": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
-        
-        # App launch - English (general patterns AFTER specific)
-        "open": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
-        "launch": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
-        "start": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
-        "run": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
-        
-        # App launch - Russian (general patterns AFTER specific)
-        "открой": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
-        "запусти": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
-        "включи": (IntentType.COMMAND, ActionCategory.APP_LAUNCH),
-        
-        # App close - English
-        "close": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
-        "quit": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
-        "exit": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
-        "kill": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
-        
-        # Window manage - English
-        "minimize": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
-        "maximize": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
-        "close window": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
-        
-        # Window manage - Russian
-        "закрой окно": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
-        "сверни окно": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
-        "разверни окно": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
-        
-        # App close - Russian
-        "закрой": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
-        "выключи": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
-        "останови": (IntentType.COMMAND, ActionCategory.APP_CLOSE),
-        
-        # File operations - English
-        "find": (IntentType.COMMAND, ActionCategory.FILE_SEARCH),
-        "search": (IntentType.COMMAND, ActionCategory.FILE_SEARCH),
-        
-        # File operations - Russian
-        "найди": (IntentType.COMMAND, ActionCategory.FILE_SEARCH),
-        "поиск": (IntentType.COMMAND, ActionCategory.FILE_SEARCH),
-        "искать": (IntentType.COMMAND, ActionCategory.FILE_SEARCH),
-        
-        # Browser - English
-        "browse": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
-        "go to": (IntentType.COMMAND, ActionCategory.BROWSER_NAVIGATE),
-        "visit": (IntentType.COMMAND, ActionCategory.BROWSER_NAVIGATE),
-        
-        # Browser - Russian
-        "открой в браузере": (IntentType.COMMAND, ActionCategory.BROWSER_OPEN),
-        "зайди на": (IntentType.COMMAND, ActionCategory.BROWSER_NAVIGATE),
-        
-        # Media - English
-        "play": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
-        "pause": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
-        "stop": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
-        
-        # Media - Russian
-        "играй": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
-        "пауза": (IntentType.COMMAND, ActionCategory.MEDIA_CONTROL),
-        
-        # Window - English
-        "minimize": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
-        "maximize": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
-        "switch": (IntentType.COMMAND, ActionCategory.APP_SWITCH),
-        
-        # Window - Russian
-        "сверни": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
-        "разверни": (IntentType.COMMAND, ActionCategory.WINDOW_MANAGE),
-        
-        # Hotkeys
-        "нажми": (IntentType.COMMAND, ActionCategory.HOTKEY),
-        "press": (IntentType.COMMAND, ActionCategory.HOTKEY),
-        
-        # Cancel
-        "cancel": (IntentType.CANCEL, ActionCategory.UNKNOWN),
-        "отмена": (IntentType.CANCEL, ActionCategory.UNKNOWN),
+    # Action patterns by action_type (deterministic)
+    # Order matters: specific patterns before general ones
+    ACTION_PATTERNS: dict[str, list[str]] = {
+        "open_url": [
+            r"открой\s+(youtube|github|google|facebook|twitter|reddit)",
+            r"open\s+(youtube|github|google|facebook|twitter|reddit)",
+        ],
+        "manage_window": [
+            r"закрой\s+окно",
+            r"сверни\s+окно",
+            r"разверни\s+окно",
+            r"minimize",
+            r"maximize",
+        ],
+        "launch_app": [
+            r"открой\s+(\S+)",
+            r"запусти\s+(\S+)",
+            r"включи\s+(\S+)",
+            r"open\s+(\S+)",
+            r"launch\s+(\S+)",
+            r"start\s+(\S+)",
+            r"run\s+(\S+)",
+        ],
+        "close_app": [
+            r"закрой\s+(\S+)",
+            r"выключи\s+(\S+)",
+            r"останови\s+(\S+)",
+            r"close\s+(\S+)",
+            r"quit\s+(\S+)",
+            r"exit\s+(\S+)",
+            r"kill\s+(\S+)",
+        ],
+        "press_hotkey": [
+            r"нажми\s+(\S+)",
+            r"жми\s+(\S+)",
+            r"press\s+(\S+)",
+            r"hit\s+(\S+)",
+        ],
+        "search_file": [
+            r"найди\s+(\S+)",
+            r"поиск\s+(\S+)",
+            r"искать\s+(\S+)",
+            r"find\s+(\S+)",
+            r"search\s+(\S+)",
+        ],
+        "system_action": [
+            r"выключи",
+            r"перезагрузи",
+            r"shutdown",
+            r"restart",
+        ],
+    }
+    
+    # Popular sites mapping
+    POPULAR_SITES: dict[str, str] = {
+        "youtube": "youtube.com",
+        "github": "github.com",
+        "google": "google.com",
+        "facebook": "facebook.com",
+        "twitter": "twitter.com",
+        "reddit": "reddit.com",
+    }
+    
+    # Window actions mapping
+    WINDOW_ACTIONS: dict[str, str] = {
+        "закрой окно": "close",
+        "сверни окно": "minimize",
+        "разверни окно": "maximize",
+        "minimize": "minimize",
+        "maximize": "maximize",
     }
     
     def __init__(self, config: Config) -> None:
@@ -121,6 +106,78 @@ class IntentParser:
             self._llm_router = LLMRouter(self.config.llm)
         return self._llm_router
     
+    def normalize_text(self, text: str) -> str:
+        """Normalize text for consistent matching."""
+        return text.lower().replace("ё", "е").strip()
+    
+    def match_action_type(self, text: str) -> tuple[str, str | None]:
+        """
+        Match action type using deterministic regex patterns.
+        
+        Returns:
+            (action_type, extracted_target)
+        """
+        normalized = self.normalize_text(text)
+        
+        for action_type, patterns in self.ACTION_PATTERNS.items():
+            for pattern in patterns:
+                match = re.match(pattern, normalized)
+                if match:
+                    # Extract target if pattern has capture group
+                    if match.groups():
+                        target = match.group(1)
+                    else:
+                        target = None
+                    return action_type, target
+        
+        return "unknown", None
+    
+    def extract_params(self, action_type: str, target: str | None, text: str) -> dict[str, Any]:
+        """Extract params based on action_type (deterministic)."""
+        params = {}
+        
+        if action_type == "launch_app":
+            params["app"] = target
+        elif action_type == "open_url":
+            if target in self.POPULAR_SITES:
+                params["url"] = f"https://{self.POPULAR_SITES[target]}"
+            else:
+                params["url"] = f"https://{target}.com"
+        elif action_type == "close_app":
+            params["app"] = target
+        elif action_type == "press_hotkey":
+            params["keys"] = self._parse_hotkey(target or "")
+        elif action_type == "search_file":
+            params["query"] = target
+        elif action_type == "manage_window":
+            params["window_action"] = self._extract_window_action(text)
+        elif action_type == "system_action":
+            params["system_action"] = self._extract_system_action(text)
+        
+        return params
+    
+    def _parse_hotkey(self, text: str) -> list[str]:
+        """Parse hotkey combination."""
+        parts = text.lower().replace("+", " ").split()
+        return parts
+    
+    def _extract_window_action(self, text: str) -> str:
+        """Extract window action from text."""
+        normalized = self.normalize_text(text)
+        for pattern, action in self.WINDOW_ACTIONS.items():
+            if pattern in normalized:
+                return action
+        return "close"  # Default
+    
+    def _extract_system_action(self, text: str) -> str:
+        """Extract system action from text."""
+        normalized = self.normalize_text(text)
+        if "shutdown" in normalized or "выключи" in normalized:
+            return "shutdown"
+        elif "restart" in normalized or "перезагрузи" in normalized:
+            return "restart"
+        return "shutdown"  # Default
+    
     async def parse(self, text: str, context: dict[str, Any] | None = None) -> Intent:
         """
         Parse user text into structured Intent.
@@ -132,278 +189,39 @@ class IntentParser:
         Returns:
             Structured Intent object
         """
-        text_lower = text.lower().strip()
+        # Match action type
+        action_type, target = self.match_action_type(text)
         
-        # Quick pattern matching first (faster, no LLM)
-        intent = self._try_quick_parse(text_lower)
-        if intent and intent.confidence > 0.8:
-            return intent
-        
-        # Use LLM for complex parsing
-        return await self._llm_parse(text, context or {})
-    
-    def _try_quick_parse(self, text: str) -> Intent | None:
-        """Try quick pattern-based parsing."""
-        # Sort patterns by length (longer patterns first)
-        sorted_patterns = sorted(
-            self.QUICK_PATTERNS.items(),
-            key=lambda x: len(x[0]),
-            reverse=True
-        )
-        
-        for pattern, (intent_type, action_category) in sorted_patterns:
-            if text.startswith(pattern):
-                # Extract entity after pattern
-                entity_text = text[len(pattern):].strip()
-                
-                # Map to new structure (pass original text for context)
-                action_type, target, params, safety_level = self._map_to_new_structure(
-                    action_category, entity_text, text
-                )
-                
-                return Intent(
-                    action_type=action_type,
-                    target=target,
-                    params=params,
-                    safety_level=safety_level,
-                    complexity=1,
-                    confidence=0.9,
-                    raw_text=text,
-                )
-        
-        return None
-    
-    def _map_to_new_structure(
-        self, action_category: ActionCategory, entity_text: str, raw_text: str = ""
-    ) -> tuple[str, str | None, dict, SafetyLevel]:
-        """Map old action_category to new action_type structure."""
-        from ..core.constants import SafetyLevel
-        
-        # Map action_category to action_type
-        action_type_map = {
-            ActionCategory.APP_LAUNCH: "launch_app",
-            ActionCategory.APP_CLOSE: "close_app",
-            ActionCategory.APP_SWITCH: "switch_app",
-            ActionCategory.BROWSER_OPEN: "open_url",
-            ActionCategory.BROWSER_NAVIGATE: "open_url",
-            ActionCategory.FILE_SEARCH: "search_file",
-            ActionCategory.FILE_OPEN: "open_file",
-            ActionCategory.HOTKEY: "press_hotkey",
-            ActionCategory.WINDOW_MANAGE: "manage_window",
-            ActionCategory.SYSTEM_POWER: "system_action",
-        }
-        
-        action_type = action_type_map.get(action_category, "unknown")
-        
-        # Determine target and params
-        target = None
-        params = {}
-        
-        if action_category in (ActionCategory.APP_LAUNCH, ActionCategory.APP_CLOSE, ActionCategory.APP_SWITCH):
-            target = self._normalize_app_name(entity_text)
-            params["app"] = target
-        elif action_category in (ActionCategory.BROWSER_OPEN, ActionCategory.BROWSER_NAVIGATE):
-            # For specific patterns like "открой youtube", entity_text is empty
-            # Extract site name from raw_text
-            if not entity_text:
-                site_map = {
-                    "youtube": "youtube.com",
-                    "github": "github.com",
-                    "google": "google.com",
-                }
-                # Extract site from raw_text
-                site_name = None
-                for site in site_map:
-                    if site in raw_text.lower():
-                        site_name = site
-                        break
-                if site_name:
-                    url = f"https://{site_map[site_name]}"
-                    target = url
-                    params["url"] = url
-                else:
-                    params["query"] = raw_text
-            else:
-                url = self._extract_url(entity_text)
-                if url:
-                    target = url
-                    params["url"] = url
-                else:
-                    params["query"] = entity_text
-        elif action_category == ActionCategory.FILE_SEARCH:
-            params["query"] = entity_text
-        elif action_category == ActionCategory.HOTKEY:
-            keys = self._parse_hotkey(entity_text)
-            target = "+".join(keys)
-            params["keys"] = keys
-        elif action_category == ActionCategory.WINDOW_MANAGE:
-            # Map window action text to action type
-            window_actions = {
-                "окно": "close",  # "закрой окно" -> close
-                "сверни": "minimize",
-                "разверни": "maximize",
-                "minimize": "minimize",
-                "maximize": "maximize",
-                "close": "close",
-            }
-            if entity_text:
-                window_action = window_actions.get(entity_text.lower(), entity_text)
-            else:
-                # Extract from raw_text (e.g., "закрой окно" -> "close")
-                window_action = "close"  # Default for "закрой окно"
-                if "сверни" in raw_text.lower():
-                    window_action = "minimize"
-                elif "разверни" in raw_text.lower():
-                    window_action = "maximize"
-            target = window_action
-            params["window_action"] = window_action
-        elif action_category == ActionCategory.SYSTEM_POWER:
-            params["system_action"] = entity_text
+        # Extract params
+        params = self.extract_params(action_type, target, text)
         
         # Determine safety level
-        safety_map = {
-            ActionCategory.APP_CLOSE: SafetyLevel.CAUTION,
-            ActionCategory.FILE_DELETE: SafetyLevel.DANGEROUS,
-            ActionCategory.SYSTEM_POWER: SafetyLevel.DANGEROUS,
-        }
+        safety_level = self._classify_safety(action_type)
         
-        safety_level = safety_map.get(action_category, SafetyLevel.SAFE)
-        
-        return action_type, target, params, safety_level
+        # Build intent
+        return Intent(
+            action_type=action_type,
+            target=target,
+            params=params,
+            safety_level=safety_level,
+            complexity=1,
+            confidence=0.9,
+            raw_text=text,
+        )
     
-    def _extract_entities_quick(
-        self,
-        text: str,
-        category: ActionCategory,
-    ) -> dict[str, Any]:
-        """Quick entity extraction for simple patterns."""
-        entities: dict[str, Any] = {}
-        
-        # Popular sites should be open_url not app_launch
-        popular_sites = {
-            "youtube": "youtube.com",
-            "github": "github.com",
-            "google": "google.com",
-            "facebook": "facebook.com",
-            "twitter": "twitter.com",
-            "reddit": "reddit.com",
-        }
-        
-        text_lower = text.lower()
-        
-        # Check if text matches popular site
-        for site, url in popular_sites.items():
-            if site in text_lower:
-                entities["url"] = url
-                entities["site"] = site
-                return entities
-        
-        if category == ActionCategory.APP_LAUNCH:
-            # Normalize app name
-            app_name = self._normalize_app_name(text)
-            entities["app"] = app_name
-        
-        elif category == ActionCategory.FILE_SEARCH:
-            entities["query"] = text
-        
-        elif category == ActionCategory.BROWSER_NAVIGATE:
-            # Check if it's a known site
-            url = self._extract_url(text)
-            if url:
-                entities["url"] = url
-            else:
-                entities["query"] = text
-        
-        elif category == ActionCategory.HOTKEY:
-            # Parse hotkey
-            entities["keys"] = self._parse_hotkey(text)
-        
-        elif category == ActionCategory.MEDIA_CONTROL:
-            entities["action"] = text
-        
-        return entities
-    
-    def _normalize_app_name(self, text: str) -> str:
-        """Normalize app name to common format."""
-        text_lower = text.lower().strip()
-        
-        # Common mappings
-        mappings = {
-            "chrome": "chrome",
-            "хром": "chrome",
-            "хромиум": "chrome",
-            "firefox": "firefox",
-            "фаерфокс": "firefox",
-            "edge": "msedge",
-            "эдж": "msedge",
-            "youtube": "chrome",  # YouTube usually opens in Chrome
-            "ютуб": "chrome",
-            "notepad": "notepad",
-            "блокнот": "notepad",
-            "калькулятор": "calc",
-            "калькулятор": "calc",
-        }
-        
-        return mappings.get(text_lower, text_lower)
-    
-    def _parse_hotkey(self, text: str) -> list[str]:
-        """Parse hotkey combination."""
-        # Simple parsing: "ctrl+c", "ctrl shift c", etc.
-        parts = text.lower().replace("+", " ").split()
-        
-        # Normalize
-        normalized = []
-        for part in parts:
-            if part in ["ctrl", "control"]:
-                normalized.append("ctrl")
-            elif part in ["alt"]:
-                normalized.append("alt")
-            elif part in ["shift"]:
-                normalized.append("shift")
-            elif part in ["win", "windows", "meta"]:
-                normalized.append("win")
-            else:
-                # Assume it's a key
-                normalized.append(part)
-        
-        return normalized
-    
-    def _extract_url(self, text: str) -> str | None:
-        """Extract URL from text, handling common sites."""
-        text_lower = text.lower().strip()
-        
-        # Known sites mapping
-        site_mappings = {
-            "youtube": "https://youtube.com",
-            "ютуб": "https://youtube.com",
-            "google": "https://google.com",
-            "гугл": "https://google.com",
-            "github": "https://github.com",
-            "гитхаб": "https://github.com",
-            "stackoverflow": "https://stackoverflow.com",
-        }
-        
-        if text_lower in site_mappings:
-            return site_mappings[text_lower]
-        
-        # Check if already a URL
-        if text_lower.startswith("http://") or text_lower.startswith("https://"):
-            return text_lower
-        
-        # Check if looks like a domain
-        if "." in text_lower and " " not in text_lower:
-            return f"https://{text_lower}"
-        
-        return None
+    def _classify_safety(self, action_type: str) -> SafetyLevel:
+        """Classify safety level based on action_type."""
+        dangerous = ["close_app", "system_action"]
+        if action_type in dangerous:
+            return SafetyLevel.CAUTION
+        return SafetyLevel.SAFE
     
     async def _llm_parse(
         self,
         text: str,
         context: dict[str, Any],
     ) -> Intent:
-        """Use LLM to parse complex intent."""
-        from ..core.constants import SafetyLevel
-        
+        """Use LLM to parse complex intent (fallback)."""
         prompt = f"""Analyze this user input and extract the intent.
 
 Input: "{text}"
