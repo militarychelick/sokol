@@ -1,5 +1,5 @@
 """
-Text I/O - Text-first input for Sokol v2
+Text input - CLI fallback for voice
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import sys
 
 
 class TextIO:
-    """Text input/output (primary interface)."""
+    """Text input/output (CLI fallback)."""
     
     def __init__(self) -> None:
         self._queue: asyncio.Queue[str] = asyncio.Queue()

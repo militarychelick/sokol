@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Sokol v2 - Voice AI Agent for Windows
+Sokol v2 - LLM-powered Voice AI Agent for Windows
 Entry point
 """
 
@@ -16,29 +16,38 @@ def main() -> int:
     """Main entry point."""
     from sokol.core.agent import SokolAgent
     from sokol.core.config import Config
+    from sokol.input.text import TextIO
     
     # Load configuration
     config = Config.load()
     
     print("=" * 60)
-    print("Sokol v2 - Voice AI Agent for Windows")
+    print("Sokol v2 - LLM-powered Voice AI Agent for Windows")
     print("=" * 60)
+    print()
+    print("Wake word: Сокол (not implemented yet, use text)")
     print()
     print("Type commands and press Enter to execute.")
     print("Examples:")
     print("  - открой chrome")
     print("  - открой youtube")
-    print("  - найди документ")
     print("  - нажми ctrl+c")
+    print("  - сверни окно")
+    print("  - привет (chat)")
     print()
     print("Press Ctrl+C to exit.")
     print("=" * 60)
     print()
     
-    # Create and run agent
+    # Create agent
     agent = SokolAgent(config)
     
+    # Start text input
+    text_io = TextIO()
+    asyncio.create_task(text_io.start_stdin_reader())
+    
     try:
+        # Run agent
         asyncio.run(agent.run())
     except KeyboardInterrupt:
         print("\nShutting down...")
@@ -48,6 +57,8 @@ def main() -> int:
         import traceback
         traceback.print_exc()
         return 1
+    finally:
+        asyncio.run(text_io.stop_stdin_reader())
     
     return 0
 

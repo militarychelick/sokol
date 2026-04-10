@@ -1,5 +1,5 @@
 """
-Sokol v2 - Main agent orchestration
+Sokol v2 - Main agent orchestration (LLM-based)
 """
 
 from __future__ import annotations
@@ -9,8 +9,6 @@ from enum import Enum
 from typing import Any, Callable
 
 from .config import Config
-from .intent import Intent, SafetyLevel
-from .result import ActionResult
 
 
 class AgentState(Enum):
@@ -26,26 +24,28 @@ class AgentState(Enum):
 
 class SokolAgent:
     """
-    The Sokol Agent - single decision point for all operations.
+    Sokol Agent - LLM-powered voice assistant.
     
-    Single execution flow:
-    Input → Intent → Safety → Planner (optional) → Dispatcher → Action → Result → Memory → Response
+    Execution flow:
+    Wake Word → Voice Input → LLM (Intent + Planning) → Safety → Execution → Memory → Response
     """
     
     def __init__(self, config: Config) -> None:
         self.config = config
         self.state = AgentState.IDLE
-        self.current_intent: Intent | None = None
         
         # Layer references (lazy loaded)
-        self._intent_parser: Any = None
-        self._planner: Any = None
-        self._dispatcher: Any = None
-        self._safety_policy: Any = None
-        self._memory: Any = None
+        self._llm_client: Any = None
+        self._llm_reasoning: Any = None
         self._llm_router: Any = None
         self._voice_io: Any = None
         self._text_io: Any = None
+        self._uia: Any = None
+        self._api: Any = None
+        self._hotkeys: Any = None
+        self._safety_checker: Any = None
+        self._memory_store: Any = None
+        self._user_profile: Any = None
         
         # Callbacks for state changes
         self._state_callbacks: list[Callable[[AgentState], None]] = []
@@ -56,51 +56,27 @@ class SokolAgent:
     # --- Layer Properties (lazy loading) ---
     
     @property
-    def intent_parser(self) -> Any:
-        """Intent parser (lazy loaded)."""
-        if self._intent_parser is None:
-            from ..intent.parser import IntentParser
-            self._intent_parser = IntentParser(self.config)
-        return self._intent_parser
+    def llm_client(self) -> Any:
+        """LLM client (lazy loaded)."""
+        if self._llm_client is None:
+            from ..brain.llm import LLMClient
+            self._llm_client = LLMClient(self.config)
+        return self._llm_client
     
     @property
-    def planner(self) -> Any:
-        """Task planner (lazy loaded)."""
-        if self._planner is None:
-            from ..planner.task_planner import TaskPlanner
-            self._planner = TaskPlanner(self.config)
-        return self._planner
-    
-    @property
-    def dispatcher(self) -> Any:
-        """Action dispatcher (lazy loaded)."""
-        if self._dispatcher is None:
-            from ..executor.dispatcher import ActionDispatcher
-            self._dispatcher = ActionDispatcher()
-        return self._dispatcher
-    
-    @property
-    def safety_policy(self) -> Any:
-        """Safety policy (lazy loaded)."""
-        if self._safety_policy is None:
-            from ..safety.policy import SafetyPolicy
-            self._safety_policy = SafetyPolicy(self.config.safety)
-        return self._safety_policy
-    
-    @property
-    def memory(self) -> Any:
-        """Memory system (lazy loaded)."""
-        if self._memory is None:
-            from ..memory.memory import MemorySystem
-            self._memory = MemorySystem(self.config.memory)
-        return self._memory
+    def llm_reasoning(self) -> Any:
+        """LLM reasoning (lazy loaded)."""
+        if self._llm_reasoning is None:
+            from ..brain.reasoning import LLMReasoning
+            self._llm_reasoning = LLMReasoning(self.config, self.llm_client)
+        return self._llm_reasoning
     
     @property
     def llm_router(self) -> Any:
         """LLM router (lazy loaded)."""
         if self._llm_router is None:
-            from ..llm.router import LLMRouter
-            self._llm_router = LLMRouter(self.config.llm)
+            from ..brain.router import LLMRouter
+            self._llm_router = LLMRouter(self.config, self.llm_client)
         return self._llm_router
     
     @property
@@ -108,7 +84,7 @@ class SokolAgent:
         """Voice I/O (lazy loaded)."""
         if self._voice_io is None:
             from ..input.voice import VoiceIO
-            self._voice_io = VoiceIO(self.config.voice)
+            self._voice_io = VoiceIO(self.config)
         return self._voice_io
     
     @property
@@ -118,6 +94,54 @@ class SokolAgent:
             from ..input.text import TextIO
             self._text_io = TextIO()
         return self._text_io
+    
+    @property
+    def uia(self) -> Any:
+        """UI Automation (lazy loaded)."""
+        if self._uia is None:
+            from ..execution.uia import UIA
+            self._uia = UIA()
+        return self._uia
+    
+    @property
+    def api(self) -> Any:
+        """API integrations (lazy loaded)."""
+        if self._api is None:
+            from ..execution.api import API
+            self._api = API()
+        return self._api
+    
+    @property
+    def hotkeys(self) -> Any:
+        """Hotkeys (lazy loaded)."""
+        if self._hotkeys is None:
+            from ..execution.hotkeys import Hotkeys
+            self._hotkeys = Hotkeys()
+        return self._hotkeys
+    
+    @property
+    def safety_checker(self) -> Any:
+        """Safety checker (lazy loaded)."""
+        if self._safety_checker is None:
+            from ..safety.checker import SafetyChecker
+            self._safety_checker = SafetyChecker(self.config)
+        return self._safety_checker
+    
+    @property
+    def memory_store(self) -> Any:
+        """Memory store (lazy loaded)."""
+        if self._memory_store is None:
+            from ..memory.store import MemoryStore
+            self._memory_store = MemoryStore(self.config)
+        return self._memory_store
+    
+    @property
+    def user_profile(self) -> Any:
+        """User profile (lazy loaded)."""
+        if self._user_profile is None:
+            from ..memory.profile import UserProfile
+            self._user_profile = UserProfile(self.config)
+        return self._user_profile
     
     # --- State Management ---
     
@@ -152,18 +176,30 @@ class SokolAgent:
     async def _initialize(self) -> None:
         """Initialize required components."""
         try:
-            await self.memory.initialize()
+            await self.memory_store.initialize()
         except Exception:
             pass  # Memory optional
         
         try:
-            await self.llm_router.initialize()
+            await self.user_profile.load()
         except Exception:
-            pass  # LLM optional
+            pass  # Profile optional
+        
+        try:
+            await self.voice_io.initialize()
+        except Exception:
+            pass  # Voice optional
     
     async def _shutdown(self) -> None:
         """Cleanup components."""
-        pass
+        try:
+            await self.llm_client.shutdown()
+        except Exception:
+            pass
+        try:
+            await self.voice_io.shutdown()
+        except Exception:
+            pass
     
     async def _interaction_loop(self) -> None:
         """Single interaction cycle."""
@@ -196,35 +232,39 @@ class SokolAgent:
     
     # --- Core Processing Flow ---
     
-    async def process_input(self, text: str) -> ActionResult:
+    async def process_input(self, text: str) -> dict[str, Any]:
         """
-        Single execution flow:
-        Input → Intent → Safety → Planner (optional) → Dispatcher → Action → Result → Memory → Response
+        LLM-based execution flow:
+        Input → LLM (Intent + Planning) → Safety → Execution → Memory → Response
         """
         self.set_state(AgentState.PROCESSING)
         
         try:
-            # Parse intent
-            intent = await self.intent_parser.parse(text)
+            # LLM understanding
+            intent = await self.llm_reasoning.understand_command(text)
             
             # Safety check
-            safety = self.safety_policy.classify(intent)
-            if safety == SafetyLevel.DANGEROUS:
-                return ActionResult(
-                    success=False,
-                    action="blocked",
-                    message="Action too dangerous",
-                )
+            safety_level = self.safety_checker.check_action(
+                intent.get("action", ""), intent.get("params", {})
+            )
             
-            # Planning (optional)
-            if self.planner.needs_planning(intent):
-                result = await self._execute_planned(intent)
-            else:
-                result = await self._execute_direct(intent)
+            if self.safety_checker.requires_confirmation(safety_level):
+                # For MVP, auto-approve safe actions
+                if safety_level != "dangerous":
+                    pass
+                else:
+                    return {
+                        "success": False,
+                        "action": intent.get("action", ""),
+                        "message": "Action too dangerous, confirmation required",
+                    }
+            
+            # Execute action
+            result = await self._execute_action(intent)
             
             # Memory
             try:
-                await self.memory.store(text, intent, result)
+                await self.memory_store.store_interaction(text, intent, result)
             except Exception:
                 pass
             
@@ -234,36 +274,97 @@ class SokolAgent:
             return result
             
         except Exception as e:
-            return ActionResult(
-                success=False,
-                action="error",
-                message=str(e),
-                error=str(e),
-            )
+            return {
+                "success": False,
+                "action": "error",
+                "message": str(e),
+                "error": str(e),
+            }
         
         finally:
             self.set_state(AgentState.IDLE)
     
-    async def _execute_direct(self, intent: Intent) -> ActionResult:
-        """Execute intent directly."""
+    async def _execute_action(self, intent: dict[str, Any]) -> dict[str, Any]:
+        """Execute action based on LLM intent."""
         self.set_state(AgentState.EXECUTING)
-        return await self.dispatcher.dispatch_async(intent)
+        
+        action = intent.get("action", "")
+        params = intent.get("params", {})
+        
+        try:
+            if action == "launch_app":
+                app = params.get("app", "")
+                success = self.uia.launch_app(app)
+                return {
+                    "success": success,
+                    "action": action,
+                    "message": f"Launched: {app}" if success else f"Failed to launch: {app}",
+                }
+            elif action == "open_url":
+                url = params.get("url", "")
+                success = self.api.open_url(url)
+                return {
+                    "success": success,
+                    "action": action,
+                    "message": f"Opened: {url}" if success else f"Failed to open: {url}",
+                }
+            elif action == "press_hotkey":
+                keys = params.get("keys", [])
+                success = self.hotkeys.press(keys)
+                return {
+                    "success": success,
+                    "action": action,
+                    "message": f"Pressed: {'+'.join(keys)}" if success else "Failed to press keys",
+                }
+            elif action == "manage_window":
+                window_action = params.get("window_action", "")
+                if window_action == "minimize":
+                    success = self.uia.minimize_window()
+                elif window_action == "maximize":
+                    success = self.uia.maximize_window()
+                elif window_action == "close":
+                    success = self.uia.close_window()
+                else:
+                    success = False
+                return {
+                    "success": success,
+                    "action": action,
+                    "message": f"Window {window_action}" if success else "Failed window action",
+                }
+            elif action == "chat":
+                # Chat response
+                message = intent.get("params", {}).get("message", "")
+                response = await self.llm_router.route(message, system_prompt="Ты — Сокол, дружелюбный помощник.")
+                return {
+                    "success": True,
+                    "action": action,
+                    "message": response,
+                }
+            else:
+                return {
+                    "success": False,
+                    "action": action,
+                    "message": f"Unknown action: {action}",
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "action": action,
+                "message": f"Execution failed: {str(e)}",
+                "error": str(e),
+            }
     
-    async def _execute_planned(self, intent: Intent) -> ActionResult:
-        """Execute intent with planning."""
-        self.set_state(AgentState.PLANNING)
-        # For v2, minimal planning - just direct execution
-        return await self._execute_direct(intent)
-    
-    async def _respond(self, result: ActionResult) -> None:
+    async def _respond(self, result: dict[str, Any]) -> None:
         """Respond to user."""
         self.set_state(AgentState.SPEAKING)
         
+        message = result.get("message", "")
+        
         try:
-            await self.voice_io.speak(result.message)
+            await self.voice_io.speak(message)
         except Exception:
             # Text fallback
-            print(result.message)
+            print(message)
     
     def shutdown(self) -> None:
         """Signal shutdown."""

@@ -1,42 +1,50 @@
 """
-Voice I/O - Optional voice interface for Sokol v2
+Voice I/O - STT + TTS + wake word detection
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
+
+from ..core.config import Config
 
 
 class VoiceIO:
-    """Voice input/output (optional, text fallback required)."""
+    """Voice input/output with wake word detection."""
     
-    def __init__(self, config: Any) -> None:
+    def __init__(self, config: Config) -> None:
         self.config = config
-        self._initialized = False
+        self._listening = False
+        self._wake_word = config.voice.wake_word or "Сокол"
     
     async def initialize(self) -> None:
-        """Initialize voice components (STT/TTS)."""
-        # For v2, voice is optional - may fail without hardware
-        try:
-            # TODO: Initialize Faster-Whisper (STT)
-            # TODO: Initialize Edge TTS (TTS)
-            self._initialized = True
-        except Exception:
-            self._initialized = False
-    
-    async def shutdown(self) -> None:
-        """Cleanup voice components."""
+        """Initialize voice components."""
+        # TODO: Initialize Faster-Whisper (STT)
+        # TODO: Initialize Edge TTS (TTS)
+        # TODO: Initialize wake word detection
         pass
+    
+    async def listen_for_wake_word(self) -> str | None:
+        """Listen for wake word and return command."""
+        # TODO: Implement wake word detection
+        # For MVP, return None (use text input)
+        return None
     
     async def listen(self) -> str | None:
         """Listen for voice input."""
-        if not self._initialized:
-            return None
         # TODO: Implement STT
         return None
     
     async def speak(self, text: str) -> None:
         """Speak text to user."""
-        if not self._initialized:
-            return
         # TODO: Implement TTS
+        print(f"[VOICE] {text}")
+    
+    async def shutdown(self) -> None:
+        """Cleanup voice components."""
+        pass
+    
+    def is_listening(self) -> bool:
+        """Check if currently listening."""
+        return self._listening
