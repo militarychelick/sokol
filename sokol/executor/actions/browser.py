@@ -13,7 +13,7 @@ from ...core.agent import ActionResult, Intent
 class BrowserAction(BaseAction):
     """Action for browser operations."""
     
-    async def execute(self, intent: Intent) -> ActionResult:
+    def execute(self, intent: Intent) -> ActionResult:
         """Execute browser action."""
         if intent.action_type == "open_url":
             return self._open_url(intent)

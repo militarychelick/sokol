@@ -14,7 +14,7 @@ from ...core.agent import ActionResult, Intent
 class FileAction(BaseAction):
     """Action for file operations."""
     
-    async def execute(self, intent: Intent) -> ActionResult:
+    def execute(self, intent: Intent) -> ActionResult:
         """Execute file action."""
         if intent.action_type == "search_file":
             return self._search(intent)

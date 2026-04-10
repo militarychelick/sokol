@@ -13,7 +13,7 @@ from ...core.agent import ActionResult, Intent
 class SystemAction(BaseAction):
     """Action for system operations."""
     
-    async def execute(self, intent: Intent) -> ActionResult:
+    def execute(self, intent: Intent) -> ActionResult:
         """Execute system action."""
         action = intent.params.get("system_action", intent.target)
         

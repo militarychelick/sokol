@@ -13,7 +13,7 @@ from ...core.agent import ActionResult, Intent
 class WindowAction(BaseAction):
     """Action for window management."""
     
-    async def execute(self, intent: Intent) -> ActionResult:
+    def execute(self, intent: Intent) -> ActionResult:
         """Execute window action."""
         action = intent.params.get("window_action", intent.target)
         

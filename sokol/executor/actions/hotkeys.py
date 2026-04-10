@@ -13,7 +13,7 @@ from ...core.agent import ActionResult, Intent
 class HotkeyAction(BaseAction):
     """Action for hotkey operations."""
     
-    async def execute(self, intent: Intent) -> ActionResult:
+    def execute(self, intent: Intent) -> ActionResult:
         """Execute hotkey action."""
         if intent.action_type == "press_hotkey":
             return self._press_hotkey(intent)

@@ -30,6 +30,7 @@ class ActionDispatcher:
         "open_url": BrowserAction,
         "press_hotkey": HotkeyAction,
         "search_file": FileAction,
+        "open_file": FileAction,
         "manage_window": WindowAction,
         "system_action": SystemAction,
     }
@@ -40,9 +41,9 @@ class ActionDispatcher:
         for action_type, action_class in self.ACTION_MAP.items():
             self._actions[action_type] = action_class()
     
-    async def dispatch(self, intent: Intent) -> ActionResult:
+    def dispatch(self, intent: Intent) -> ActionResult:
         """
-        Dispatch intent to appropriate action module.
+        Dispatch intent to appropriate action module (synchronous).
         
         Args:
             intent: Parsed intent with action_type, target, params
@@ -52,6 +53,7 @@ class ActionDispatcher:
         """
         action_type = intent.action_type
         
+        # Validation: unknown action_type
         if action_type not in self._actions:
             return ActionResult(
                 success=False,
@@ -59,10 +61,19 @@ class ActionDispatcher:
                 message=f"Unknown action type: {action_type}",
             )
         
+        # Validation: missing required fields
+        if not self._validate_intent(intent):
+            return ActionResult(
+                success=False,
+                action=action_type,
+                message="Invalid intent: missing required fields",
+            )
+        
         action_module = self._actions[action_type]
         
+        # Fail-safe: catch all exceptions
         try:
-            result = await action_module.execute(intent)
+            result = action_module.execute(intent)
             return result
         except Exception as e:
             return ActionResult(
@@ -72,6 +83,30 @@ class ActionDispatcher:
                 error=str(e),
             )
     
+    def _validate_intent(self, intent: Intent) -> bool:
+        """Lightweight validation before execution."""
+        # Check action_type
+        if not intent.action_type:
+            return False
+        
+        # Check required target for certain actions
+        target_required_actions = ["launch_app", "close_app", "switch_app", "open_url", "press_hotkey"]
+        if intent.action_type in target_required_actions:
+            if not intent.target and not intent.params.get("target"):
+                return False
+        
+        return True
+    
+    async def dispatch_async(self, intent: Intent) -> ActionResult:
+        """
+        Async wrapper for dispatch (for agent compatibility).
+        
+        Runs synchronous dispatch in thread pool.
+        """
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self.dispatch, intent)
+    
     async def execute_step(self, step: Any) -> ActionResult:
         """Execute a single step (for planned tasks)."""
         # Convert step to intent and dispatch
@@ -80,4 +115,4 @@ class ActionDispatcher:
             target=step.params.get("target"),
             params=step.params,
         )
-        return await self.dispatch(intent)
+        return await self.dispatch_async(intent)

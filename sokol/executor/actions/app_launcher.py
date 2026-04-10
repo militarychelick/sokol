@@ -14,7 +14,7 @@ from ...core.agent import ActionResult, Intent
 class AppLauncherAction(BaseAction):
     """Action for launching/closing applications."""
     
-    async def execute(self, intent: Intent) -> ActionResult:
+    def execute(self, intent: Intent) -> ActionResult:
         """Execute app launch/close action."""
         if intent.action_type == "launch_app":
             return self._launch(intent)

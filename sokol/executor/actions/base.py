@@ -14,6 +14,6 @@ class BaseAction(ABC):
     """Base interface for all actions."""
     
     @abstractmethod
-    async def execute(self, intent: Intent) -> ActionResult:
-        """Execute the action."""
+    def execute(self, intent: Intent) -> ActionResult:
+        """Execute the action (synchronous)."""
         pass

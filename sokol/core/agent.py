@@ -459,7 +459,7 @@ class SokolAgent:
         """Execute simple intent directly."""
         self.set_state(AgentState.EXECUTING)
         
-        result = await self.executor.execute(intent)
+        result = await self.executor.dispatch_async(intent)
         
         return result
     
