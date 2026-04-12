@@ -29,6 +29,8 @@ class FileOps(Tool[dict[str, Any]]):
 
     @property
     def undo_support(self) -> bool:
+        # Write and move operations support undo
+        # Delete operations cannot be reliably undone without proper trash integration
         return True
 
     @property

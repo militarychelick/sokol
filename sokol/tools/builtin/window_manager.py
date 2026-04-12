@@ -37,6 +37,8 @@ class WindowManager(Tool[dict[str, Any]]):
 
     @property
     def undo_support(self) -> bool:
+        # Most window actions support undo (minimize, maximize, restore, focus)
+        # Close action cannot be reliably undone (cannot reopen closed windows)
         return True
 
     @property

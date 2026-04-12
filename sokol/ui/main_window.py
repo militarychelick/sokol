@@ -1,4 +1,4 @@
-"""Main window with chat interface."""
+"""Main window with chat interface and panels."""
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -11,6 +11,14 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QLabel,
     QSplitter,
+    QTabWidget,
+    QMenuBar,
+    QMenu,
+    QDialog,
+    QFormLayout,
+    QSpinBox,
+    QComboBox,
+    QCheckBox,
 )
 
 from sokol.core.config import get_config
@@ -34,6 +42,7 @@ class MainWindow(QMainWindow):
         self._current_state = AgentState.IDLE
 
         self._setup_ui()
+        self._setup_menu()
         self._connect_signals()
 
         logger.info("Main window created")
@@ -43,13 +52,11 @@ class MainWindow(QMainWindow):
         # Window properties
         self.setWindowTitle(self._config.agent.name)
         self.setMinimumSize(400, 500)
-        self.resize(600, 700)
+        self.resize(800, 700)
 
-        # Central widget
+        # Central widget with tabs
         central = QWidget()
         self.setCentralWidget(central)
-
-        # Main layout
         layout = QVBoxLayout(central)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
@@ -61,15 +68,26 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self._status_label)
 
-        # Chat history
+        # Tab widget
+        self._tab_widget = QTabWidget()
+        self._tab_widget.setStyleSheet(
+            "QTabWidget::pane { border: 1px solid #3d3d3d; }"
+            "QTabBar::tab { background-color: #2d2d2d; color: white; padding: 8px; }"
+            "QTabBar::tab:selected { background-color: #0078d4; }"
+        )
+
+        # Chat tab
+        self._chat_tab = QWidget()
+        chat_layout = QVBoxLayout(self._chat_tab)
+        
         self._chat_history = QTextEdit()
         self._chat_history.setReadOnly(True)
         self._chat_history.setStyleSheet(
-            "background-color: #1e1e1e; border: 1px solid #3d3d3d; border-radius: 4px;"
+            "background-color: #1e1e1e; border: none; border-radius: 4px;"
         )
-        layout.addWidget(self._chat_history, stretch=1)
+        chat_layout.addWidget(self._chat_history, stretch=1)
 
-        # Input area
+        # Input area in chat tab
         input_layout = QHBoxLayout()
 
         self._input_field = QLineEdit()
@@ -97,7 +115,39 @@ class MainWindow(QMainWindow):
         input_layout.addWidget(self._send_button)
         input_layout.addWidget(self._emergency_button)
 
-        layout.addLayout(input_layout)
+        chat_layout.addLayout(input_layout)
+
+        self._tab_widget.addTab(self._chat_tab, "Chat")
+
+        # History tab
+        self._history_tab = QWidget()
+        history_layout = QVBoxLayout(self._history_tab)
+        
+        self._history_viewer = QTextEdit()
+        self._history_viewer.setReadOnly(True)
+        self._history_viewer.setStyleSheet(
+            "background-color: #1e1e1e; border: none; border-radius: 4px;"
+        )
+        self._history_viewer.setPlaceholderText("History viewer - shows past sessions")
+        history_layout.addWidget(self._history_viewer, stretch=1)
+
+        self._tab_widget.addTab(self._history_tab, "History")
+
+        # Logs tab
+        self._logs_tab = QWidget()
+        logs_layout = QVBoxLayout(self._logs_tab)
+        
+        self._logs_viewer = QTextEdit()
+        self._logs_viewer.setReadOnly(True)
+        self._logs_viewer.setStyleSheet(
+            "background-color: #1e1e1e; border: none; border-radius: 4px; font-family: monospace; font-size: 10px;"
+        )
+        self._logs_viewer.setPlaceholderText("Logs viewer - shows system logs")
+        logs_layout.addWidget(self._logs_viewer, stretch=1)
+
+        self._tab_widget.addTab(self._logs_tab, "Logs")
+
+        layout.addWidget(self._tab_widget, stretch=1)
 
         # Apply dark theme
         self.setStyleSheet(
@@ -107,7 +157,71 @@ class MainWindow(QMainWindow):
             "QTextEdit { color: #ffffff; }"
             "QPushButton { color: #ffffff; }"
             "QPushButton:hover { background-color: #404040; }"
+            "QTabWidget { color: #ffffff; }"
+            "QMenuBar { background-color: #2d2d2d; color: white; }"
+            "QMenu { background-color: #2d2d2d; color: white; }"
         )
+
+    def _setup_menu(self) -> None:
+        """Setup menu bar."""
+        menubar = self.menuBar()
+        menubar.setStyleSheet("QMenuBar { background-color: #2d2d2d; color: white; }")
+
+        # Settings menu
+        settings_menu = menubar.addMenu("Settings")
+        
+        settings_action = settings_menu.addAction("Preferences")
+        settings_action.triggered.connect(self._show_settings_dialog)
+
+        # View menu
+        view_menu = menubar.addMenu("View")
+        
+        view_menu.addAction("Chat").triggered.connect(lambda: self._tab_widget.setCurrentIndex(0))
+        view_menu.addAction("History").triggered.connect(lambda: self._tab_widget.setCurrentIndex(1))
+        view_menu.addAction("Logs").triggered.connect(lambda: self._tab_widget.setCurrentIndex(2))
+
+    def _show_settings_dialog(self) -> None:
+        """Show settings dialog."""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Sokol Settings")
+        dialog.setMinimumSize(400, 300)
+        dialog.setStyleSheet(
+            "QDialog { background-color: #1e1e1e; color: white; }"
+            "QLabel { color: white; }"
+            "QSpinBox { color: white; }"
+            "QComboBox { color: white; }"
+            "QCheckBox { color: white; }"
+        )
+
+        layout = QFormLayout(dialog)
+
+        # Response style
+        response_style_combo = QComboBox()
+        response_style_combo.addItems(["brief", "normal", "detailed"])
+        response_style_combo.setCurrentText(self._config.agent.response_style)
+        layout.addRow("Response Style:", response_style_combo)
+
+        # Voice enabled
+        voice_enabled = QCheckBox()
+        voice_enabled.setChecked(self._config.perception.enable_voice_input if hasattr(self._config, 'perception') else False)
+        layout.addRow("Voice Input:", voice_enabled)
+
+        # Confirm dangerous
+        confirm_dangerous = QCheckBox()
+        confirm_dangerous.setChecked(self._config.safety.confirm_dangerous)
+        layout.addRow("Confirm Dangerous:", confirm_dangerous)
+
+        # Buttons
+        button_layout = QHBoxLayout()
+        save_button = QPushButton("Save")
+        save_button.clicked.connect(dialog.accept)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(dialog.reject)
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        layout.addRow(button_layout)
+
+        dialog.exec()
 
     def _connect_signals(self) -> None:
         """Connect signals."""
@@ -212,6 +326,26 @@ class MainWindow(QMainWindow):
     def clear_chat(self) -> None:
         """Clear chat history."""
         self._chat_history.clear()
+
+    def update_history(self, history_data: str) -> None:
+        """Update history viewer with data."""
+        self._history_viewer.setText(history_data)
+
+    def update_logs(self, log_data: str) -> None:
+        """Update logs viewer with data."""
+        self._logs_viewer.setText(log_data)
+
+    def load_logs(self, log_path: str, max_lines: int = 1000) -> None:
+        """Load last N lines from log file into logs viewer (tail-based to prevent OOM)."""
+        try:
+            from collections import deque
+            with open(log_path, 'r', encoding='utf-8') as f:
+                # Read only last N lines to prevent memory issues
+                last_lines = deque(f, maxlen=max_lines)
+                log_content = ''.join(last_lines)
+                self._logs_viewer.setText(log_content)
+        except Exception as e:
+            self._logs_viewer.setText(f"Failed to load logs: {str(e)}")
 
     def closeEvent(self, event) -> None:
         """Handle window close."""

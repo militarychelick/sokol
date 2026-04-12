@@ -14,6 +14,7 @@ logger = get_logger("sokol.safety.risk")
 DANGEROUS_PATTERNS = [
     r"\bdelete\b",
     r"\bremove\b",
+    r"\brm\b",  # Unix rm command
     r"\bwipe\b",
     r"\bdestroy\b",
     r"\bshutdown\b",
@@ -28,6 +29,20 @@ DANGEROUS_PATTERNS = [
     r"\bmodify\b.*\bsystem\b",
     r"\bmodify\b.*\bregistry\b",
     r"\bmodify\b.*\bconfig\b",
+    r"\bexec\b",  # Code execution
+    r"\beval\b",  # Code evaluation
+    r"\bexecute\b.*\bcode\b",
+    r"\brun\b.*\bscript\b",
+    r"\bsudo\b",  # Privilege escalation
+    r"\badmin\b.*\bmode\b",
+    r"\belevated\b.*\bprivileges\b",
+    r"\bpassword\b",  # Credential exposure
+    r"\bcredential\b",
+    r"\bsecret\b",
+    r"\bapi[_-]?key\b",
+    r"\btoken\b",
+    r"\bfactory\b.*\breset\b",
+    r"\buninstall\b",
 ]
 
 # Safe operation patterns (override dangerous patterns)

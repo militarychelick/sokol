@@ -25,10 +25,20 @@ class MemoryStore(ABC, Generic[T]):
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Get database connection."""
+        """Get database connection with WAL mode and timeout for concurrent access."""
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+            self._conn = sqlite3.connect(
+                str(self._db_path),
+                check_same_thread=False,
+                timeout=10.0  # 10 second timeout for locks
+            )
             self._conn.row_factory = sqlite3.Row
+            # Enable WAL mode for better concurrent read/write support
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            # Set busy timeout for lock retries
+            self._conn.execute("PRAGMA busy_timeout=5000")
+            # Enable foreign keys
+            self._conn.execute("PRAGMA foreign_keys=ON")
         return self._conn
 
     def _init_db(self) -> None:
@@ -73,6 +83,50 @@ class MemoryStore(ABC, Generic[T]):
     def _json_deserialize(self, data: str) -> Any:
         """Deserialize JSON string."""
         return json.loads(data)
+
+    def _execute_with_retry(
+        self,
+        operation: str,
+        params: tuple = (),
+        max_retries: int = 3,
+        commit: bool = True
+    ) -> sqlite3.Cursor:
+        """
+        Execute SQL with retry logic for SQLITE_BUSY errors.
+        
+        Args:
+            operation: SQL statement
+            params: Query parameters
+            max_retries: Maximum retry attempts
+            commit: Whether to commit after execution
+            
+        Returns:
+            Cursor from execution
+        """
+        import time
+        conn = self._get_connection()
+        last_error = None
+        
+        for attempt in range(max_retries):
+            try:
+                cursor = conn.execute(operation, params)
+                if commit:
+                    conn.commit()
+                return cursor
+            except sqlite3.OperationalError as e:
+                last_error = e
+                if "locked" in str(e) or "busy" in str(e):
+                    if attempt < max_retries - 1:
+                        wait_time = 0.1 * (attempt + 1)
+                        logger.warning_data(
+                            "SQLite lock detected, retrying",
+                            {"attempt": attempt + 1, "wait": wait_time}
+                        )
+                        time.sleep(wait_time)
+                        continue
+                raise
+        
+        raise last_error
 
     def close(self) -> None:
         """Close database connection."""

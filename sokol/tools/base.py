@@ -1,6 +1,7 @@
 """Tool base class and schema definition."""
 
 import time
+import threading
 from abc import ABC, abstractmethod
 from typing import Any, Generic, TypeVar
 
@@ -8,6 +9,9 @@ from pydantic import BaseModel, Field
 
 from sokol.core.types import RiskLevel, ToolSchema as CoreToolSchema
 from sokol.core.types import ToolResult as CoreToolResult
+from sokol.observability.logging import get_logger
+
+logger = get_logger("sokol.tools.base")
 
 T = TypeVar("T")
 
@@ -33,6 +37,8 @@ class Tool(ABC, Generic[T]):
     def __init__(self) -> None:
         self._last_result: ToolResult[T] | None = None
         self._undo_info: dict[str, Any] = {}
+        self._emergency_stop_callback: Any = None
+        self._timeout: float = 30.0  # Default timeout in seconds
 
     @property
     @abstractmethod
@@ -61,6 +67,29 @@ class Tool(ABC, Generic[T]):
     def examples(self) -> list[str]:
         """Example usages."""
         return []
+
+    @property
+    def timeout(self) -> float:
+        """Tool execution timeout in seconds."""
+        return self._timeout
+
+    @timeout.setter
+    def timeout(self, value: float) -> None:
+        """Set tool execution timeout in seconds."""
+        self._timeout = value
+
+    def set_emergency_stop_callback(self, callback: Any) -> None:
+        """Set callback to check for emergency stop during execution."""
+        self._emergency_stop_callback = callback
+
+    def _check_emergency_stop(self) -> bool:
+        """Check if emergency stop has been triggered."""
+        if self._emergency_stop_callback:
+            try:
+                return self._emergency_stop_callback()
+            except Exception:
+                return False
+        return False
 
     @abstractmethod
     def get_schema(self) -> dict[str, Any]:
@@ -153,34 +182,122 @@ class Tool(ABC, Generic[T]):
 
     def safe_execute(self, **params: Any) -> ToolResult[T]:
         """
-        Execute with validation and timing.
+        Execute with validation, timing, and timeout guard.
 
         This is the preferred entry point for tool execution.
         """
         start_time = time.time()
+        tool_name = self.name
+
+        logger.info_data(
+            "Tool execution started",
+            {
+                "tool": tool_name,
+                "params": str(params)[:200],
+                "timeout": self._timeout,
+            },
+        )
+
+        # Check for emergency stop before execution
+        if self._check_emergency_stop():
+            logger.warning_data(
+                "Tool execution aborted - emergency stop",
+                {"tool": tool_name},
+            )
+            return ToolResult(
+                success=False,
+                error="Emergency stop triggered before execution",
+                risk_level=self.risk_level,
+                execution_time=time.time() - start_time,
+            )
 
         # Validate parameters
         is_valid, error = self.validate_params(params)
         if not is_valid:
+            logger.warning_data(
+                "Tool execution failed - validation error",
+                {"tool": tool_name, "error": error},
+            )
             return ToolResult(
                 success=False,
                 error=error,
                 risk_level=self.risk_level,
+                execution_time=time.time() - start_time,
             )
 
-        try:
-            result = self.execute(**params)
-            result.execution_time = time.time() - start_time
-            result.risk_level = self.risk_level
-            self._last_result = result
-            return result
-        except Exception as e:
+        # Execute with timeout guard
+        result: ToolResult[T] | None = None
+        exception: Exception | None = None
+        timeout_occurred = False
+
+        def execute_wrapper() -> None:
+            nonlocal result, exception
+            try:
+                result = self.execute(**params)
+            except Exception as e:
+                exception = e
+
+        thread = threading.Thread(target=execute_wrapper)
+        thread.start()
+        thread.join(timeout=self._timeout)
+
+        if thread.is_alive():
+            # Timeout occurred
+            timeout_occurred = True
+            logger.error_data(
+                "Tool execution timeout",
+                {"tool": tool_name, "timeout": self._timeout},
+            )
             return ToolResult(
                 success=False,
-                error=str(e),
-                execution_time=time.time() - start_time,
+                error=f"Tool execution timeout after {self._timeout} seconds",
+                risk_level=self.risk_level,
+                execution_time=self._timeout,
+            )
+
+        # Check for exception
+        if exception is not None:
+            duration = time.time() - start_time
+            logger.error_data(
+                "Tool execution failed - exception",
+                {"tool": tool_name, "error": str(exception), "duration": duration},
+            )
+            return ToolResult(
+                success=False,
+                error=str(exception),
+                execution_time=duration,
                 risk_level=self.risk_level,
             )
+
+        # Success
+        if result is not None:
+            duration = time.time() - start_time
+            result.execution_time = duration
+            result.risk_level = self.risk_level
+            self._last_result = result
+
+            logger.info_data(
+                "Tool execution completed",
+                {
+                    "tool": tool_name,
+                    "success": result.success,
+                    "duration": duration,
+                },
+            )
+
+            return result
+
+        # Fallback (should not reach here)
+        logger.error_data(
+            "Tool execution failed - no result",
+            {"tool": tool_name},
+        )
+        return ToolResult(
+            success=False,
+            error="Tool execution failed - no result returned",
+            execution_time=time.time() - start_time,
+            risk_level=self.risk_level,
+        )
 
     def __repr__(self) -> str:
         return f"Tool(name={self.name}, risk={self.risk_level.value})"

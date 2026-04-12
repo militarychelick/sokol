@@ -32,6 +32,13 @@ class VoiceConfig(BaseModel):
     tts_engine: str = "edge-tts"
 
 
+class PerceptionConfig(BaseModel):
+    """Perception input configuration."""
+
+    enable_voice_input: bool = False
+    enable_screen_input: bool = False
+
+
 class SafetyConfig(BaseModel):
     """Safety configuration."""
 
@@ -120,6 +127,7 @@ class Config(BaseModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
+    perception: PerceptionConfig = Field(default_factory=PerceptionConfig)
     safety: SafetyConfig = Field(default_factory=SafetyConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)

@@ -12,6 +12,9 @@ from .base import MemoryStore
 
 logger = get_logger("sokol.memory.session")
 
+# Maximum conversation entries per session to prevent unbounded growth
+MAX_CONVERSATION_ENTRIES = 500
+
 
 class ConversationEntry(BaseModel):
     """Single conversation entry."""
@@ -49,6 +52,11 @@ class SessionMemory(MemoryStore[SessionMemoryModel]):
                 metadata TEXT NOT NULL DEFAULT '{}',
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             )
+        """)
+        # Index for efficient pruning queries
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_conversation_pruning 
+            ON conversation_history(session_id, timestamp ASC)
         """)
         conn.commit()
 
@@ -139,7 +147,7 @@ class SessionMemory(MemoryStore[SessionMemoryModel]):
         content: str,
         metadata: dict[str, Any] | None = None,
     ) -> bool:
-        """Add entry to conversation history."""
+        """Add entry to conversation history with automatic pruning."""
         entry = ConversationEntry(
             role=role,
             content=content,
@@ -148,21 +156,51 @@ class SessionMemory(MemoryStore[SessionMemoryModel]):
         )
 
         conn = self._get_connection()
-        conn.execute(
+        
+        # Check current entry count and prune if needed
+        cursor = conn.execute(
+            "SELECT COUNT(*) as count FROM conversation_history WHERE session_id = ?",
+            (session_id,)
+        )
+        count = cursor.fetchone()["count"]
+        
+        if count >= MAX_CONVERSATION_ENTRIES:
+            # Delete oldest entries to keep under limit
+            entries_to_delete = count - MAX_CONVERSATION_ENTRIES + 1
+            conn.execute(
+                """
+                DELETE FROM conversation_history 
+                WHERE id IN (
+                    SELECT id FROM conversation_history 
+                    WHERE session_id = ? 
+                    ORDER BY timestamp ASC 
+                    LIMIT ?
+                )
+                """,
+                (session_id, entries_to_delete)
+            )
+            logger.info_data(
+                "Pruned old conversation entries",
+                {"session_id": session_id, "deleted": entries_to_delete, "limit": MAX_CONVERSATION_ENTRIES}
+            )
+        
+        
+        # Use retry wrapper for INSERT to handle SQLITE_BUSY
+        self._execute_with_retry(
             """
             INSERT INTO conversation_history
             (session_id, role, content, timestamp, metadata)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (
+            params=(
                 session_id,
                 role,
                 content,
                 entry.timestamp.isoformat(),
                 self._json_serialize(entry.metadata),
             ),
+            commit=True
         )
-        conn.commit()
 
         # Update session timestamp
         self.update(session_id, {})

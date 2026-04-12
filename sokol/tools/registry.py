@@ -26,6 +26,7 @@ class ToolRegistry:
         self._tools: dict[str, Tool[Any]] = {}
         self._schemas: dict[str, ToolSchema] = {}
         self._categories: dict[str, list[str]] = {}
+        self._emergency_stop_callback: Any = None
 
     def register(self, tool: Tool[Any]) -> None:
         """Register a tool instance."""
@@ -37,6 +38,10 @@ class ToolRegistry:
 
         self._tools[tool.name] = tool
         self._schemas[tool.name] = tool.get_tool_schema()
+
+        # Set emergency stop callback if available
+        if self._emergency_stop_callback:
+            tool.set_emergency_stop_callback(self._emergency_stop_callback)
 
         logger.info_data(
             "Tool registered",
@@ -95,6 +100,13 @@ class ToolRegistry:
     def get_read_tools(self) -> list[str]:
         """Get list of read-only tools."""
         return self.list_by_risk(RiskLevel.READ)
+
+    def set_emergency_stop_callback(self, callback: Any) -> None:
+        """Set emergency stop callback and propagate to all tools."""
+        self._emergency_stop_callback = callback
+        for tool in self._tools.values():
+            tool.set_emergency_stop_callback(callback)
+        logger.info("Emergency stop callback set on all tools")
 
     def execute(
         self,
