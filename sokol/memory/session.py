@@ -68,15 +68,14 @@ class SessionMemory(MemoryStore[SessionMemoryModel]):
         return session
 
     def save(self, entry: SessionMemoryModel) -> str:
-        """Save session."""
-        conn = self._get_connection()
-        conn.execute(
+        """Save session with retry wrapper."""
+        self._execute_with_retry(
             """
             INSERT OR REPLACE INTO sessions
             (id, created_at, updated_at, conversation, context, active_tools, tags, metadata)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
+            params=(
                 entry.id,
                 entry.created_at.isoformat(),
                 entry.updated_at.isoformat(),
@@ -86,8 +85,8 @@ class SessionMemory(MemoryStore[SessionMemoryModel]):
                 self._json_serialize(entry.tags),
                 self._json_serialize(entry.metadata),
             ),
+            commit=True
         )
-        conn.commit()
         return entry.id
 
     def get(self, entry_id: str) -> SessionMemoryModel | None:
@@ -125,10 +124,13 @@ class SessionMemory(MemoryStore[SessionMemoryModel]):
         return True
 
     def delete(self, entry_id: str) -> bool:
-        """Delete session."""
+        """Delete session with retry wrapper."""
         conn = self._get_connection()
-        cursor = conn.execute("DELETE FROM sessions WHERE id = ?", (entry_id,))
-        conn.commit()
+        cursor = self._execute_with_retry(
+            "DELETE FROM sessions WHERE id = ?",
+            params=(entry_id,),
+            commit=True
+        )
         return cursor.rowcount > 0
 
     def list_all(self, limit: int = 100, offset: int = 0) -> list[SessionMemoryModel]:
@@ -156,35 +158,35 @@ class SessionMemory(MemoryStore[SessionMemoryModel]):
         )
 
         conn = self._get_connection()
-        
+
         # Check current entry count and prune if needed
         cursor = conn.execute(
             "SELECT COUNT(*) as count FROM conversation_history WHERE session_id = ?",
             (session_id,)
         )
         count = cursor.fetchone()["count"]
-        
+
         if count >= MAX_CONVERSATION_ENTRIES:
             # Delete oldest entries to keep under limit
             entries_to_delete = count - MAX_CONVERSATION_ENTRIES + 1
-            conn.execute(
+            self._execute_with_retry(
                 """
-                DELETE FROM conversation_history 
+                DELETE FROM conversation_history
                 WHERE id IN (
-                    SELECT id FROM conversation_history 
-                    WHERE session_id = ? 
-                    ORDER BY timestamp ASC 
+                    SELECT id FROM conversation_history
+                    WHERE session_id = ?
+                    ORDER BY timestamp ASC
                     LIMIT ?
                 )
                 """,
-                (session_id, entries_to_delete)
+                params=(session_id, entries_to_delete),
+                commit=True
             )
             logger.info_data(
                 "Pruned old conversation entries",
                 {"session_id": session_id, "deleted": entries_to_delete, "limit": MAX_CONVERSATION_ENTRIES}
             )
-        
-        
+
         # Use retry wrapper for INSERT to handle SQLITE_BUSY
         self._execute_with_retry(
             """
@@ -242,13 +244,12 @@ class SessionMemory(MemoryStore[SessionMemoryModel]):
         return list(reversed(entries))  # Return in chronological order
 
     def clear_conversation(self, session_id: str) -> int:
-        """Clear conversation history for session."""
-        conn = self._get_connection()
-        cursor = conn.execute(
+        """Clear conversation history for session with retry wrapper."""
+        cursor = self._execute_with_retry(
             "DELETE FROM conversation_history WHERE session_id = ?",
-            (session_id,),
+            params=(session_id,),
+            commit=True
         )
-        conn.commit()
         return cursor.rowcount
 
     def set_context(self, session_id: str, key: str, value: Any) -> bool:
