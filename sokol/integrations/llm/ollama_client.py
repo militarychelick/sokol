@@ -71,9 +71,20 @@ class OllamaProvider(LLMProvider):
         """Generate completion using Ollama API."""
         start_time = time.time()
 
+        # Convert messages to prompt string for /api/generate
+        prompt_parts = []
+        for msg in messages:
+            if msg.role == "system":
+                prompt_parts.append(f"System: {msg.content}")
+            elif msg.role == "user":
+                prompt_parts.append(f"User: {msg.content}")
+            elif msg.role == "assistant":
+                prompt_parts.append(f"Assistant: {msg.content}")
+        prompt = "\n".join(prompt_parts)
+
         payload = {
             "model": self.model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "prompt": prompt,
             "stream": False,
             "options": {
                 "num_predict": max_tokens or self.max_tokens,
@@ -82,7 +93,7 @@ class OllamaProvider(LLMProvider):
         }
 
         response = httpx.post(
-            f"{self.base_url}/api/chat",
+            f"{self.base_url}/api/generate",
             json=payload,
             timeout=self.timeout,
         )
@@ -95,7 +106,7 @@ class OllamaProvider(LLMProvider):
         data = response.json()
 
         return LLMResponse(
-            content=data.get("message", {}).get("content", ""),
+            content=data.get("response", ""),
             model=self.model,
             provider=self.name,
             usage={
@@ -117,9 +128,20 @@ class OllamaProvider(LLMProvider):
         """Generate completion asynchronously."""
         start_time = time.time()
 
+        # Convert messages to prompt string for /api/generate
+        prompt_parts = []
+        for msg in messages:
+            if msg.role == "system":
+                prompt_parts.append(f"System: {msg.content}")
+            elif msg.role == "user":
+                prompt_parts.append(f"User: {msg.content}")
+            elif msg.role == "assistant":
+                prompt_parts.append(f"Assistant: {msg.content}")
+        prompt = "\n".join(prompt_parts)
+
         payload = {
             "model": self.model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "prompt": prompt,
             "stream": False,
             "options": {
                 "num_predict": max_tokens or self.max_tokens,
@@ -129,7 +151,7 @@ class OllamaProvider(LLMProvider):
 
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{self.base_url}/api/chat",
+                f"{self.base_url}/api/generate",
                 json=payload,
                 timeout=self.timeout,
             )
@@ -142,7 +164,7 @@ class OllamaProvider(LLMProvider):
         data = response.json()
 
         return LLMResponse(
-            content=data.get("message", {}).get("content", ""),
+            content=data.get("response", ""),
             model=self.model,
             provider=self.name,
             usage={

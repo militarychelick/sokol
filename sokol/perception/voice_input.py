@@ -24,18 +24,24 @@ class VoiceInputAdapter:
     Provides speech-to-text functionality using Whisper model.
     """
 
-    def __init__(self, wake_words: Optional[list[str]] = None, model_size: str = "base") -> None:
+    def __init__(self, wake_words: Optional[list[str]] = None, model_size: str = "base", backpressure_layer=None) -> None:
         """
         Initialize voice input adapter.
 
         Args:
             wake_words: List of wake words for activation (future use)
             model_size: Whisper model size (tiny, base, small, medium, large)
+            backpressure_layer: Optional BackpressureLayer for adaptive throttling (Phase 2.1.1)
         """
         self._wake_words = wake_words or ["sokol"]
         self._model_size = model_size
         self._model = None
         self._available = self._check_availability()
+        
+        # Phase 2.1.1: Backpressure-aware throttling
+        self._backpressure_layer = backpressure_layer
+        self._throttled_count = 0
+        
         logger.info_data(
             "Voice input adapter initialized",
             {"available": self._available, "model_size": model_size},
@@ -99,6 +105,21 @@ class VoiceInputAdapter:
             if "segments" in result and result["segments"]:
                 avg_confidence = sum(seg.get("confidence", 0.0) for seg in result["segments"]) / len(result["segments"])
                 confidence = avg_confidence
+
+            # Phase 2.1.1: Check backpressure throttling
+            if self._backpressure_layer:
+                throttle_factor = self._backpressure_layer.get_throttle_factor()
+                if throttle_factor < 0.5:
+                    # Skip voice events under medium/high pressure
+                    self._throttled_count += 1
+                    logger.warning_data(
+                        "Voice transcription throttled by backpressure",
+                        {
+                            "throttle_factor": throttle_factor,
+                            "throttled_count": self._throttled_count
+                        }
+                    )
+                    return VoiceEvent(text="", confidence=0.0, is_final=True)
 
             logger.info_data(
                 "Voice transcription successful",

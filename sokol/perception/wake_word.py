@@ -24,7 +24,7 @@ class WakeWordDetector:
     Detects wake words to trigger voice input.
     """
 
-    def __init__(self, wake_words: Optional[list[str]] = None, engine: str = "porcupine", debounce_interval: float = 1.0, confidence_threshold: float = 0.0) -> None:
+    def __init__(self, wake_words: Optional[list[str]] = None, engine: str = "porcupine", debounce_interval: float = 1.0, confidence_threshold: float = 0.0, backpressure_layer=None) -> None:
         """
         Initialize wake word detector.
 
@@ -33,6 +33,7 @@ class WakeWordDetector:
             engine: Detection engine (porcupine, vosk)
             debounce_interval: Minimum seconds between wake word triggers (default: 1.0)
             confidence_threshold: Minimum confidence threshold for wake word detection (default: 0.0 = accept all)
+            backpressure_layer: Optional BackpressureLayer for adaptive throttling (Phase 2.1.1)
         """
         self._wake_words = wake_words or ["sokol"]
         self._engine = engine
@@ -50,6 +51,10 @@ class WakeWordDetector:
         
         # P2: Confidence threshold for production-level filtering
         self._confidence_threshold = confidence_threshold
+        
+        # Phase 2.1.1: Backpressure-aware throttling
+        self._backpressure_layer = backpressure_layer
+        self._throttled_count = 0
 
         logger.info_data(
             "Wake word detector initialized",
@@ -251,6 +256,24 @@ class WakeWordDetector:
                             }
                         )
                         return WakeWordEvent(word="", confidence=confidence)
+                    
+                    # Phase 2.1.1: Check backpressure throttling
+                    if self._backpressure_layer:
+                        throttle_factor = self._backpressure_layer.get_throttle_factor()
+                        if throttle_factor < 1.0:
+                            import random
+                            # Skip trigger with probability (1 - throttle_factor)
+                            if random.random() > throttle_factor:
+                                self._throttled_count += 1
+                                logger.warning_data(
+                                    "Wake word throttled by backpressure",
+                                    {
+                                        "word": word,
+                                        "throttle_factor": throttle_factor,
+                                        "throttled_count": self._throttled_count
+                                    }
+                                )
+                                return WakeWordEvent(word="", confidence=confidence)
                     
                     logger.info_data("Wake word detected", {"word": word, "dropped_count": self._dropped_count})
                     return WakeWordEvent(word=word, confidence=confidence, audio_data=audio_data)

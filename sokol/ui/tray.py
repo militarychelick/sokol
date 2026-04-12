@@ -1,8 +1,8 @@
 """System tray icon."""
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QIcon, QAction
-from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
+from PyQt6.QtWidgets import QSystemTrayIcon, QMenu, QWidget
 
 from sokol.core.config import get_config
 from sokol.core.constants import (
@@ -21,7 +21,10 @@ logger = get_logger("sokol.ui.tray")
 class TrayIcon(QSystemTrayIcon):
     """System tray icon with menu."""
 
-    def __init__(self, parent=None) -> None:
+    # Signal for emergency stop request
+    emergency_stop_requested = pyqtSignal()
+
+    def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
 
         self._config = get_config()
@@ -94,7 +97,7 @@ class TrayIcon(QSystemTrayIcon):
             self.parent().activateWindow()
 
     def _on_emergency_stop(self) -> None:
-        """Trigger emergency stop."""
+        """Trigger emergency stop through safety lane."""
         logger.warning("Emergency stop from tray")
         self.showMessage(
             self._config.agent.name,
@@ -102,6 +105,8 @@ class TrayIcon(QSystemTrayIcon):
             QSystemTrayIcon.MessageIcon.Warning,
             2000,
         )
+        # Emit signal to trigger emergency through safety lane
+        self.emergency_stop_requested.emit()
 
     def _on_quit(self) -> None:
         """Quit application."""

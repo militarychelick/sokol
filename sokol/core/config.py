@@ -106,6 +106,13 @@ class LLMConfig(BaseModel):
     provider: str = "openai"
     fallback_provider: str = "ollama"
     fallback_timeout: float = 10.0
+    google: LLMProviderConfig = Field(
+        default_factory=lambda: LLMProviderConfig(
+            model="gemini-1.5-flash",
+            api_key="",
+            base_url="https://generativelanguage.googleapis.com/v1beta",
+        )
+    )
     openai: LLMProviderConfig = Field(default_factory=LLMProviderConfig)
     anthropic: LLMProviderConfig = Field(
         default_factory=lambda: LLMProviderConfig(

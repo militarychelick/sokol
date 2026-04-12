@@ -246,3 +246,21 @@ class UserModel:
             List of recent interactions
         """
         return self._interaction_buffer.copy()
+
+    def get_bias(self) -> dict[str, Any]:
+        """
+        Get user bias for presentation layer.
+
+        Returns:
+            Dictionary with user bias information
+        """
+        return {
+            "voice_ratio": self._profile.voice_usage_frequency / self._profile.total_interactions if self._profile.total_interactions > 0 else 0.0,
+            "risk_tolerance": self._profile.risk_tolerance.value,
+            "response_mode": self._profile.response_mode,
+            "preferred_tools": sorted(
+                self._profile.tool_success_preferences.items(),
+                key=lambda x: x[1],
+                reverse=True,
+            )[:3] if self._profile.tool_success_preferences else [],
+        }

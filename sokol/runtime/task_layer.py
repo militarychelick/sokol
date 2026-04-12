@@ -443,11 +443,28 @@ class TaskManager:
             "updated_at": task.updated_at,
         }
 
-    def clear_active_task(self) -> None:
-        """Clear the active task."""
-        self._active_task = None
+    def get_active_task(self) -> Task | None:
+        """Get currently active task."""
+        return self._active_task
+
+    def cancel_all(self, reason: str = "cancelled") -> int:
+        """
+        Cancel all tasks.
+
+        Args:
+            reason: Reason for cancellation
+
+        Returns:
+            Number of tasks cancelled
+        """
+        cancelled = 0
+        if self._active_task:
+            self._active_task = None
+            logger.info_data("Active task cancelled", {"reason": reason})
+            cancelled = 1
         # P0: Clear active flag in database
         self._clear_active_flag()
+        return cancelled
     
     def shutdown(self) -> None:
         """Shutdown task manager and close database connection."""

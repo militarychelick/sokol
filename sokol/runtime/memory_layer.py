@@ -246,6 +246,27 @@ class MemoryLayer:
         # This is a hook for future batch updates
         pass
 
+    def _build_summary(self) -> str:
+        """
+        Build summary from short-term buffer.
+
+        Returns:
+            Summary string
+        """
+        if not self._short_term_buffer:
+            return ""
+
+        # Count interaction types
+        voice_count = sum(1 for i in self._short_term_buffer if i.source == "voice")
+        ui_count = sum(1 for i in self._short_term_buffer if i.source == "ui")
+        tool_count = sum(1 for i in self._short_term_buffer if i.tool_used)
+
+        # Get summary from user model
+        user_summary = self._user_model.summarize_history()
+
+        summary = f"{user_summary}. Последние: {len(self._short_term_buffer)} взаимодействий (голос: {voice_count}, UI: {ui_count}, инструменты: {tool_count})."
+        return summary
+
     def _compress_long_term_memory(self) -> None:
         """Compress short-term buffer into long-term summary."""
         if not self._short_term_buffer:

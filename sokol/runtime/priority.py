@@ -43,7 +43,13 @@ class PriorityPolicy:
             # Check if it's a confirmation/cancel command (higher priority)
             if data and "text" in data:
                 text = data["text"].lower().strip()
-                if text in ["да", "нет", "отмена", "стоп", "подтверждаю", "выполняй", "yes", "no", "cancel", "stop", "confirm", "execute"]:
+                # FIX: Added missing emergency keywords to match verification check in _process_event
+                # Keywords: ["stop", "стоп", "cancel", "отмена", "emergency", "авария", "abort", "прервать"]
+                emergency_keywords = ["да", "нет", "отмена", "стоп", "подтверждаю", "выполняй", 
+                                    "yes", "no", "cancel", "stop", "confirm", "execute",
+                                    "emergency", "авария", "abort", "прервать"]
+                # Check if text contains any emergency keyword (not just exact match)
+                if any(keyword in text for keyword in emergency_keywords):
                     return EventPriority.EMERGENCY.value
             return EventPriority.USER_INPUT.value
         
@@ -58,17 +64,17 @@ class PriorityPolicy:
         
         return EventPriority.BACKGROUND.value
     
-    def should_drop_under_pressure(
+    def should_drop_for_state(
         self, 
         priority: int, 
-        pressure_level: str
+        system_state
     ) -> Tuple[bool, str]:
         """
-        Determine if event should be dropped based on priority and pressure.
+        Determine if event should be dropped based on priority and system state (Phase 2.1.2).
         
         Args:
             priority: Event priority level
-            pressure_level: Current queue pressure level
+            system_state: Current system recovery state (SystemState enum)
         
         Returns:
             (drop, reason) tuple
@@ -77,16 +83,16 @@ class PriorityPolicy:
         if priority == EventPriority.EMERGENCY.value:
             return False, "emergency_protected"
         
-        # Drop background tasks under medium pressure
-        if priority == EventPriority.BACKGROUND.value and pressure_level in ["medium", "high", "critical"]:
+        # Drop background tasks in THROTTLED, SAFE, MINIMAL
+        if priority == EventPriority.BACKGROUND.value and system_state.value >= 1:
             return True, "background_task_dropped"
         
-        # Drop screen capture under high pressure
-        if priority == EventPriority.SCREEN_CAPTURE.value and pressure_level in ["high", "critical"]:
+        # Drop screen capture in SAFE, MINIMAL
+        if priority == EventPriority.SCREEN_CAPTURE.value and system_state.value >= 2:
             return True, "screen_capture_dropped"
         
-        # Drop voice under critical pressure
-        if priority == EventPriority.VOICE_INPUT.value and pressure_level == "critical":
-            return True, "voice_dropped_critical"
+        # Drop voice in MINIMAL
+        if priority == EventPriority.VOICE_INPUT.value and system_state.value >= 3:
+            return True, "voice_dropped_minimal"
         
         return False, "accept"

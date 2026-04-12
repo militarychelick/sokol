@@ -6,7 +6,7 @@ from datetime import datetime
 
 from sokol.perception.voice_input import VoiceEvent
 from sokol.perception.screen_input import ScreenSnapshot
-from sokol.runtime.intent_model import Intent
+from sokol.runtime.intent_model import IntentModel
 from sokol.observability.logging import get_logger
 
 logger = get_logger("sokol.runtime.unified_input")
@@ -31,7 +31,7 @@ class UnifiedInputContext:
     timestamp: datetime = field(default_factory=datetime.utcnow)
     
     # Extracted intent (filled by IntentExtractor)
-    intent: Optional[Intent] = None
+    intent: Optional[IntentModel] = None
     
     # Context flags
     has_voice: bool = field(init=False)

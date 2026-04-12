@@ -9,7 +9,7 @@ from sokol.observability.logging import get_logger, setup_logging
 from sokol.runtime.orchestrator import Orchestrator
 from sokol.runtime.live_loop import LiveLoopController
 from sokol.runtime.input import submit_input
-from sokol.safety.emergency import register_emergency_callback
+from sokol.safety.emergency import register_emergency_callback, get_emergency_handler
 from sokol.memory.manager import MemoryManager
 from sokol.tools.registry import get_registry
 from sokol.ui.app import SokolApp
@@ -86,7 +86,10 @@ def main() -> int:
     )
 
     # Register emergency stop callback
-    register_emergency_callback(lambda reason: orchestrator.emergency_stop(reason))
+    # FIX: Register LiveLoopController with emergency handler to ensure full mitigation/observer/verification coverage
+    emergency_handler = get_emergency_handler()
+    emergency_handler.set_loop_controller(loop_controller)
+    # FIX: No fallback callback - emergency must go through pipeline (fail-stop model)
 
     # Initialize UI
     app = SokolApp(config)
@@ -100,7 +103,7 @@ def main() -> int:
 
     # Wire UI to loop controller (unified input stream)
     def on_user_input(text: str) -> None:
-        main_window.add_user_message(text)
+        # UI widget already adds the message to display, so we don't add it again
         memory.add_message("user", text)
         # Submit through live loop controller
         loop_controller.submit_text(text)
@@ -147,8 +150,13 @@ def main() -> int:
 
     # Wire UI signals
     main_window.message_sent.connect(on_user_input)
+    # FIX: Use submit_text for emergency as normal event through pipeline (final architecture)
     main_window.emergency_stop_requested.connect(
-        lambda: orchestrator.emergency_stop("ui_button")
+        lambda: loop_controller.submit_text("emergency stop", source="ui_button")
+    )
+    # FIX: Connect tray emergency stop to submit_text (normal event through pipeline)
+    tray.emergency_stop_requested.connect(
+        lambda: loop_controller.submit_text("emergency stop", source="tray")
     )
 
     # Start orchestrator

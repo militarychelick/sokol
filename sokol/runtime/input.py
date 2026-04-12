@@ -20,7 +20,7 @@ class UnifiedInput:
 
 def submit_input(
     text: str,
-    orchestrator,
+    loop_controller,
     source: Literal["ui", "voice", "screen"] = "ui",
     metadata: dict | None = None,
 ) -> None:
@@ -31,11 +31,14 @@ def submit_input(
     1. Validates input (empty/whitespace guard)
     2. Normalizes text (using normalize_input)
     3. Logs input source
-    4. Calls orchestrator.process_input()
+    4. Calls loop_controller.submit_text() to ensure full runtime protection
+
+    FIX #2: Changed from direct orchestrator access to LiveLoopController to prevent bypass
+    of mitigation, observer, and verification layers.
 
     Args:
         text: Raw input text
-        orchestrator: Orchestrator instance
+        loop_controller: LiveLoopController instance (not orchestrator)
         source: Input source ("ui", "voice", "screen")
         metadata: Optional metadata dictionary
     """
@@ -53,5 +56,6 @@ def submit_input(
         {"source": source, "text": text[:100], "metadata": metadata},
     )
 
-    # Call orchestrator
-    orchestrator.process_input(text, source=source)
+    # Call LiveLoopController to ensure full runtime protection
+    # This ensures mitigation, observer, and verification layers apply
+    loop_controller.submit_text(text, source=source)

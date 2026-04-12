@@ -10,6 +10,7 @@ from .base import LLMMessage, LLMProvider, LLMResponse
 from .openai_client import OpenAIProvider
 from .anthropic_client import AnthropicProvider
 from .ollama_client import OllamaProvider
+from .google_client import GoogleAIProvider
 
 logger = get_logger("sokol.integrations.llm.manager")
 
@@ -32,6 +33,16 @@ class LLMManager:
 
     def _init_providers(self) -> None:
         """Initialize providers from config."""
+        # Google AI
+        if self._config.llm.google:
+            self._providers["google"] = GoogleAIProvider(
+                model=self._config.llm.google.model,
+                api_key=self._config.llm.google.api_key,
+                base_url=self._config.llm.google.base_url,
+                max_tokens=self._config.llm.google.max_tokens,
+                temperature=self._config.llm.google.temperature,
+            )
+
         # OpenAI
         if self._config.llm.openai:
             api_key = self._config.get_api_key("openai")
@@ -113,9 +124,10 @@ class LLMManager:
             return provider.complete(messages, **kwargs)
 
         except Exception as e:
+            import traceback
             logger.error_data(
                 "Primary provider failed",
-                {"provider": provider.name, "error": str(e)},
+                {"provider": provider.name, "error": str(e), "traceback": traceback.format_exc()},
             )
 
             if not use_fallback:
@@ -133,7 +145,7 @@ class LLMManager:
                 except Exception as fallback_error:
                     logger.error_data(
                         "Fallback provider also failed",
-                        {"provider": fallback.name, "error": str(fallback_error)},
+                        {"provider": fallback.name, "error": str(fallback_error), "traceback": traceback.format_exc()},
                     )
 
             raise RuntimeError(f"All providers failed: {e}")

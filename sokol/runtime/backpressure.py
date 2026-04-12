@@ -107,3 +107,29 @@ class BackpressureLayer:
         }
         
         return base_delays.get(pressure, 0)
+    
+    def get_throttle_factor(self) -> float:
+        """
+        Get throttle factor for adaptive producers (Phase 2.1.1).
+        
+        Returns throttle factor (0.0-1.0) indicating how much
+        producers should reduce their event rate:
+        
+        - 1.0 = full speed (low pressure)
+        - 0.5 = half speed (medium pressure)
+        - 0.2 = 20% speed (high pressure)
+        - 0.0 = stop (critical pressure)
+        
+        Returns:
+            Throttle factor between 0.0 and 1.0
+        """
+        pressure = self.get_pressure_level()
+        
+        throttle_factors = {
+            "low": 1.0,
+            "medium": 0.5,
+            "high": 0.2,
+            "critical": 0.0
+        }
+        
+        return throttle_factors.get(pressure, 1.0)

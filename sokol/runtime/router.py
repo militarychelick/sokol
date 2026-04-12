@@ -172,12 +172,13 @@ class IntentRouter:
                     logger.info_data("Rule-based proposed action", {"action": action.action_type})
                     return action
 
-        # All sources failed
-        logger.warning("No source could process input")
+        # All sources failed - return simple response instead of REJECTED
+        logger.warning("No source could process input, returning simple response")
         return ProposedAction(
-            source=DecisionSource.REJECTED,
+            source=DecisionSource.RULE_BASED,
             action_type="final_answer",
-            text="I couldn't understand that command. Type 'help' for available commands.",
+            text=f"Я получил ваш запрос: '{user_input}'. LLM недоступен, поэтому я не могу обработать это сообщение. Пожалуйста, запустите Ollama или настройте Google AI API.",
+            confidence=1.0,
         )
 
     def _try_llm(self, user_input: str) -> ProposedAction | None:

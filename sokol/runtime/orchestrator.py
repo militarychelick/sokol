@@ -96,6 +96,10 @@ class Orchestrator:
         # Task Layer (task/goal system) - single instance
         self._task_manager = TaskManager()
 
+        # Intent Model Layer (intent extraction and context compression) - initialize before MemoryLayer
+        self._intent_extractor = IntentExtractor()
+        self._context_compression_engine = ContextCompressionEngine()
+
         # Memory layer (with tool registry, task manager, and context compression engine)
         self._memory_layer = MemoryLayer(
             self._user_model,
@@ -124,9 +128,8 @@ class Orchestrator:
         # Decision Trace Layer (explainability for system decisions)
         self._decision_trace_collector = DecisionTraceCollector()
 
-        # Intent Model Layer (intent extraction and context compression)
-        self._intent_extractor = IntentExtractor()
-        self._context_compression_engine = ContextCompressionEngine()
+        # UX Realness Layer (presentation state)
+        self._ux_realness = UXRealness()
 
         # Pending action for confirmation (runtime only, not persistent)
         self._pending_action: ProposedAction | None = None
@@ -449,7 +452,7 @@ class Orchestrator:
 
         # STRICT: Ensure state always returns to IDLE/ERROR
         try:
-            self._execute_agent_loop(text, source, memory_context_obj)
+            self._execute_agent_loop(text, source, memory_context_obj, screen_context)
         finally:
             # Safety fallback: force to IDLE if not already there
             if self._state_machine.state not in (AgentState.IDLE, AgentState.ERROR):
@@ -459,7 +462,7 @@ class Orchestrator:
                 )
                 self._state_machine.force_transition(AgentState.IDLE, "finally_cleanup")
 
-    def _execute_agent_loop(self, user_input: str, source: str = "user", memory_context_obj: Any = None) -> None:
+    def _execute_agent_loop(self, user_input: str, source: str = "user", memory_context_obj: Any = None, screen_context: Optional[dict] = None) -> None:
         """
         Strict agent execution loop with clear phases.
 
@@ -475,6 +478,7 @@ class Orchestrator:
             user_input: User input text
             source: Input source (voice/ui/debug) for response mode selection
             memory_context_obj: Memory context object from MemoryLayer
+            screen_context: Optional screen context data from ScreenInputAdapter
         """
         try:
             # PHASE 1: Route input through IntentRouter
