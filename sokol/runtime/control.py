@@ -83,7 +83,10 @@ class ControlLayer:
             ControlResult with decision and explanation
         """
         # Check emergency stop first (highest priority)
-        if self._emergency_stop_triggered:
+        with self._lock:
+            emergency_triggered = self._emergency_stop_triggered
+        
+        if emergency_triggered:
             logger.warning("Emergency stop triggered, blocking action")
             return ControlResult(
                 decision=ControlDecision.BLOCKED,

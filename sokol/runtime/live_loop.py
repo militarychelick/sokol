@@ -85,6 +85,7 @@ class LiveLoopController:
         # Callbacks
         self._on_state_change: Optional[Callable[[AgentState], None]] = None
         self._on_response: Optional[Callable[[str], None]] = None
+        self._on_event_drop: Optional[Callable[[str, str], None]] = None  # P0: Event drop notification
         
         # V2: Backpressure layer
         self._backpressure = BackpressureLayer(self._event_queue, maxsize=100)
@@ -117,6 +118,15 @@ class LiveLoopController:
     def set_response_callback(self, callback: Callable[[str], None]) -> None:
         """Set callback for agent responses."""
         self._on_response = callback
+    
+    def set_event_drop_callback(self, callback: Callable[[str, str], None]) -> None:
+        """
+        Set callback for event drop notifications.
+        
+        Args:
+            callback: Function called with (source, reason) when event is dropped
+        """
+        self._on_event_drop = callback
     
     def start(self) -> None:
         """Start the live loop."""
@@ -214,6 +224,9 @@ class LiveLoopController:
             )
             logger.warning_data("Event dropped by priority policy",
                 {"source": source, "reason": drop_reason, "priority": priority})
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop(source, drop_reason)
             return False
         
         # V2: Check backpressure admission
@@ -225,6 +238,9 @@ class LiveLoopController:
             )
             logger.warning_data("Event throttled by backpressure",
                 {"source": source, "reason": accept_reason})
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop(source, accept_reason)
             return False
         
         # V2: Check adaptive throttling delay
@@ -240,6 +256,9 @@ class LiveLoopController:
                 )
                 logger.debug_data("Event throttled by adaptive delay",
                     {"source": source, "delay_ms": throttle_delay})
+                # P0: Notify callback
+                if self._on_event_drop:
+                    self._on_event_drop(source, "adaptive_delay")
                 return False
         
         # Submit to queue
@@ -260,6 +279,9 @@ class LiveLoopController:
             )
             logger.warning_data("Text event dropped - queue full",
                 {"queue_size": 100, "drop_count": self._queue_drop_count})
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop(source, "queue_full")
             return False
     
     def submit_voice(self, audio_data: bytes, source: str = "voice") -> bool:
@@ -290,6 +312,9 @@ class LiveLoopController:
             )
             logger.warning_data("Voice event dropped by priority policy",
                 {"source": source, "reason": drop_reason})
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop(source, drop_reason)
             return False
         
         accept, accept_reason = self._backpressure.should_accept_event(priority)
@@ -298,6 +323,9 @@ class LiveLoopController:
                 "events_throttled_total",
                 tags={"source": source, "reason": accept_reason}
             )
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop(source, accept_reason)
             return False
         
         try:
@@ -316,6 +344,9 @@ class LiveLoopController:
             )
             logger.warning_data("Voice event dropped - queue full",
                 {"queue_size": 100, "drop_count": self._queue_drop_count})
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop(source, "queue_full")
             return False
     
     def request_screen_capture(self, source: str = "screen") -> bool:
@@ -344,6 +375,9 @@ class LiveLoopController:
             )
             logger.warning_data("Screen capture dropped by priority policy",
                 {"source": source, "reason": drop_reason})
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop(source, drop_reason)
             return False
         
         accept, accept_reason = self._backpressure.should_accept_event(priority)
@@ -352,6 +386,9 @@ class LiveLoopController:
                 "events_throttled_total",
                 tags={"source": source, "reason": accept_reason}
             )
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop(source, accept_reason)
             return False
         
         try:
@@ -370,6 +407,9 @@ class LiveLoopController:
             )
             logger.warning_data("Screen capture event dropped - queue full",
                 {"queue_size": 100, "drop_count": self._queue_drop_count})
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop(source, "queue_full")
             return False
     
     def _loop_main(self) -> None:
@@ -582,6 +622,9 @@ class LiveLoopController:
             )
             logger.warning_data("Wake word event dropped by priority policy",
                 {"reason": drop_reason})
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop("wake_word", drop_reason)
             return
         
         try:
@@ -598,6 +641,9 @@ class LiveLoopController:
             )
             logger.warning_data("Wake word event dropped - queue full",
                 {"queue_size": 100, "drop_count": self._queue_drop_count})
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop("wake_word", "queue_full")
     
     def _update_state(self, state: AgentState) -> None:
         """Update agent state and notify callback."""

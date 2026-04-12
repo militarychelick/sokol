@@ -1,9 +1,13 @@
 """Task Layer - task/goal system for structured user intent."""
 
-from dataclasses import dataclass, field
+import sqlite3
+import json
+import os
+from dataclasses import dataclass, field, asdict
 from typing import Any, Optional, List
 from enum import Enum
 from datetime import datetime
+from pathlib import Path
 
 from sokol.observability.logging import get_logger
 
@@ -54,10 +58,170 @@ class TaskManager:
     - Execute outside pipeline
     """
 
-    def __init__(self) -> None:
-        """Initialize task manager."""
+    def __init__(self, db_path: Optional[str] = None) -> None:
+        """
+        Initialize task manager.
+        
+        Args:
+            db_path: Optional path to SQLite database for task persistence
+        """
         self._active_task: Optional[Task] = None
         self._task_history: List[Task] = []
+        
+        # P0: Task persistence
+        self._db_path = db_path or os.path.join(os.path.expanduser("~"), ".sokol", "tasks.db")
+        self._conn: Optional[sqlite3.Connection] = None
+        
+        # Initialize database
+        self._init_db()
+        
+        # Restore active task on startup
+        self._restore_active_task()
+    
+    def _init_db(self) -> None:
+        """Initialize SQLite database for task persistence."""
+        try:
+            # Create directory if it doesn't exist
+            db_dir = os.path.dirname(self._db_path)
+            if db_dir and not os.path.exists(db_dir):
+                os.makedirs(db_dir, exist_ok=True)
+            
+            # Connect to database
+            self._conn = sqlite3.connect(self._db_path, timeout=10.0)
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA busy_timeout=5000")
+            
+            # Create tasks table
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS tasks (
+                    task_id TEXT PRIMARY KEY,
+                    goal TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    steps TEXT,
+                    current_step INTEGER DEFAULT 0,
+                    risk_level TEXT DEFAULT 'low',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    metadata TEXT,
+                    is_active INTEGER DEFAULT 0
+                )
+            """)
+            
+            self._conn.commit()
+            logger.info_data("Task persistence database initialized", {"db_path": self._db_path})
+            
+        except Exception as e:
+            logger.error_data("Failed to initialize task database", {"error": str(e)})
+            self._conn = None
+    
+    def _save_task(self, task: Task, is_active: bool = False) -> None:
+        """
+        Save task to database.
+        
+        Args:
+            task: Task to save
+            is_active: Whether this is the active task
+        """
+        if not self._conn:
+            return
+        
+        try:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO tasks 
+                (task_id, goal, status, steps, current_step, risk_level, created_at, updated_at, metadata, is_active)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    task.task_id,
+                    task.goal,
+                    task.status.value,
+                    json.dumps(task.steps),
+                    task.current_step,
+                    task.risk_level,
+                    task.created_at,
+                    task.updated_at,
+                    json.dumps(task.metadata),
+                    1 if is_active else 0
+                )
+            )
+            self._conn.commit()
+        except Exception as e:
+            logger.error_data("Failed to save task", {"task_id": task.task_id, "error": str(e)})
+    
+    def _load_task(self, task_id: str) -> Optional[Task]:
+        """
+        Load task from database.
+        
+        Args:
+            task_id: Task ID to load
+        
+        Returns:
+            Task or None if not found
+        """
+        if not self._conn:
+            return None
+        
+        try:
+            cursor = self._conn.execute(
+                "SELECT task_id, goal, status, steps, current_step, risk_level, created_at, updated_at, metadata FROM tasks WHERE task_id = ?",
+                (task_id,)
+            )
+            row = cursor.fetchone()
+            
+            if not row:
+                return None
+            
+            return Task(
+                task_id=row[0],
+                goal=row[1],
+                status=TaskStatus(row[2]),
+                steps=json.loads(row[3]) if row[3] else [],
+                current_step=row[4],
+                risk_level=row[5],
+                created_at=row[6],
+                updated_at=row[7],
+                metadata=json.loads(row[8]) if row[8] else {}
+            )
+        except Exception as e:
+            logger.error_data("Failed to load task", {"task_id": task_id, "error": str(e)})
+            return None
+    
+    def _restore_active_task(self) -> None:
+        """Restore active task from database on startup."""
+        if not self._conn:
+            return
+        
+        try:
+            cursor = self._conn.execute(
+                "SELECT task_id FROM tasks WHERE is_active = 1 LIMIT 1"
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                task_id = row[0]
+                task = self._load_task(task_id)
+                if task and task.status in [TaskStatus.CREATED, TaskStatus.IN_PROGRESS, TaskStatus.WAITING_CONFIRMATION]:
+                    self._active_task = task
+                    self._task_history.append(task)
+                    logger.info_data("Active task restored", {"task_id": task_id, "status": task.status.value})
+                else:
+                    # Clear active flag if task is completed/failed
+                    self._conn.execute("UPDATE tasks SET is_active = 0 WHERE task_id = ?", (task_id,))
+                    self._conn.commit()
+        except Exception as e:
+            logger.error_data("Failed to restore active task", {"error": str(e)})
+    
+    def _clear_active_flag(self) -> None:
+        """Clear active flag from all tasks in database."""
+        if not self._conn:
+            return
+        
+        try:
+            self._conn.execute("UPDATE tasks SET is_active = 0")
+            self._conn.commit()
+        except Exception as e:
+            logger.error_data("Failed to clear active flag", {"error": str(e)})
 
     def create_task(
         self,
@@ -86,6 +250,10 @@ class TaskManager:
 
         self._active_task = task
         self._task_history.append(task)
+        
+        # P0: Persist task
+        self._clear_active_flag()
+        self._save_task(task, is_active=True)
 
         logger.info_data(
             "Task created",
@@ -130,6 +298,10 @@ class TaskManager:
         if current_step is not None:
             task.current_step = current_step
 
+        # P0: Persist task update
+        is_active = (self._active_task and self._active_task.task_id == task_id)
+        self._save_task(task, is_active=is_active)
+
         logger.info_data(
             "Task status updated",
             {"task_id": task_id, "status": status.value},
@@ -152,6 +324,9 @@ class TaskManager:
             # Clear active task if it was the one completed
             if self._active_task and self._active_task.task_id == task_id:
                 self._active_task = None
+                # P0: Clear active flag in database
+                self._conn.execute("UPDATE tasks SET is_active = 0 WHERE task_id = ?", (task_id,))
+                self._conn.commit()
 
         return task
 
@@ -172,6 +347,9 @@ class TaskManager:
             # Clear active task if it was the one failed
             if self._active_task and self._active_task.task_id == task_id:
                 self._active_task = None
+                # P0: Clear active flag in database
+                self._conn.execute("UPDATE tasks SET is_active = 0 WHERE task_id = ?", (task_id,))
+                self._conn.commit()
 
         return task
 
@@ -228,6 +406,10 @@ class TaskManager:
         task.status = TaskStatus.IN_PROGRESS
         task.updated_at = datetime.now().isoformat()
         self._active_task = task
+        
+        # P0: Persist task continuation
+        self._clear_active_flag()
+        self._save_task(task, is_active=True)
 
         logger.info_data(
             "Task continued",
@@ -264,6 +446,17 @@ class TaskManager:
     def clear_active_task(self) -> None:
         """Clear the active task."""
         self._active_task = None
+        # P0: Clear active flag in database
+        self._clear_active_flag()
+    
+    def shutdown(self) -> None:
+        """Shutdown task manager and close database connection."""
+        if self._conn:
+            try:
+                self._conn.close()
+                logger.info("Task manager shutdown, database connection closed")
+            except Exception as e:
+                logger.error_data("Failed to close database connection", {"error": str(e)})
 
     def _find_task(self, task_id: str) -> Optional[Task]:
         """

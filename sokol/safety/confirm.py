@@ -29,6 +29,9 @@ class ConfirmationManager:
         self._responses: dict[str, ConfirmationResponse] = {}
         self._lock = threading.Lock()
         self._executor = ThreadPoolExecutor(max_workers=1)
+        
+        # P0: Event-driven wait mechanism (remove polling)
+        self._wait_events: dict[str, threading.Event] = {}
 
         # Callback for UI
         self._on_request_callback: Callable[[ConfirmationRequest], None] | None = None
@@ -58,6 +61,8 @@ class ConfirmationManager:
 
         with self._lock:
             self._pending[request.id] = request
+            # P0: Create wait event for this request
+            self._wait_events[request.id] = threading.Event()
 
         logger.info_data(
             "Confirmation request created",
@@ -94,6 +99,10 @@ class ConfirmationManager:
 
             self._responses[request_id] = response
             del self._pending[request_id]
+            
+            # P0: Signal wait event
+            if request_id in self._wait_events:
+                self._wait_events[request_id].set()
 
         logger.info_data(
             "Confirmation response received",
@@ -114,32 +123,34 @@ class ConfirmationManager:
         """
         Wait for response to a confirmation request.
 
-        Blocks until response is received or timeout.
+        Blocks until response is received or timeout (event-driven, no polling).
         """
-        request = self._pending.get(request_id)
-        if not request:
-            raise ValueError(f"Request {request_id} not found")
+        with self._lock:
+            request = self._pending.get(request_id)
+            wait_event = self._wait_events.get(request_id)
+            if not request or not wait_event:
+                raise ValueError(f"Request {request_id} not found or invalid")
 
         timeout = timeout or request.timeout
-        elapsed = 0.0
-        check_interval = 0.1
-
-        while elapsed < timeout:
+        
+        # P0: Event-driven wait (no polling)
+        if wait_event.wait(timeout=timeout):
+            # Event was set, response is available
             with self._lock:
                 if request_id in self._responses:
-                    return self._responses[request_id]
-
-            # Check for cancellation
-            if request_id not in self._pending:
-                raise ConfirmationTimeout(request_id, elapsed)
-
-            threading.Event().wait(check_interval)
-            elapsed += check_interval
-
+                    response = self._responses[request_id]
+                    # Clean up wait event
+                    if request_id in self._wait_events:
+                        del self._wait_events[request_id]
+                    return response
+        
         # Timeout
         with self._lock:
             if request_id in self._pending:
                 del self._pending[request_id]
+            # Clean up wait event
+            if request_id in self._wait_events:
+                del self._wait_events[request_id]
 
         raise ConfirmationTimeout(request_id, timeout)
 
@@ -148,30 +159,61 @@ class ConfirmationManager:
         request_id: str,
         timeout: float | None = None,
     ) -> ConfirmationResponse:
-        """Async version of wait_for_response."""
-        request = self._pending.get(request_id)
-        if not request:
-            raise ValueError(f"Request {request_id} not found")
+        """Async version of wait_for_response (event-driven, no polling)."""
+        with self._lock:
+            request = self._pending.get(request_id)
+            if not request:
+                raise ValueError(f"Request {request_id} not found")
 
         timeout = timeout or request.timeout
-        elapsed = 0.0
-        check_interval = 0.1
-
-        while elapsed < timeout:
+        
+        # P0: Create asyncio.Event for async wait
+        async_event = asyncio.Event()
+        
+        # Set the async event when the thread event is set
+        def set_async_event():
+            if request_id in self._wait_events:
+                # Wait for thread event in background thread
+                if self._wait_events[request_id].wait(timeout=timeout):
+                    # Schedule async event set on event loop
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.call_soon_threadsafe(async_event.set)
+                    except RuntimeError:
+                        pass
+        
+        # Start thread to monitor thread event
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(set_async_event)
+        
+        # P0: Event-driven wait (no polling)
+        try:
+            await asyncio.wait_for(async_event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            # Timeout
             with self._lock:
-                if request_id in self._responses:
-                    return self._responses[request_id]
-
-            if request_id not in self._pending:
-                raise ConfirmationTimeout(request_id, elapsed)
-
-            await asyncio.sleep(check_interval)
-            elapsed += check_interval
-
+                if request_id in self._pending:
+                    del self._pending[request_id]
+                # Clean up wait event
+                if request_id in self._wait_events:
+                    del self._wait_events[request_id]
+            raise ConfirmationTimeout(request_id, timeout)
+        
+        # Response is available
         with self._lock:
-            if request_id in self._pending:
-                del self._pending[request_id]
-
+            if request_id in self._responses:
+                response = self._responses[request_id]
+                # Clean up wait event
+                if request_id in self._wait_events:
+                    del self._wait_events[request_id]
+                return response
+        
+        # Clean up wait event if no response
+        with self._lock:
+            if request_id in self._wait_events:
+                del self._wait_events[request_id]
+        
         raise ConfirmationTimeout(request_id, timeout)
 
     def get_pending(self) -> list[ConfirmationRequest]:
@@ -184,6 +226,10 @@ class ConfirmationManager:
         with self._lock:
             if request_id in self._pending:
                 del self._pending[request_id]
+                # P0: Clean up wait event
+                if request_id in self._wait_events:
+                    self._wait_events[request_id].set()
+                    del self._wait_events[request_id]
                 logger.info_data(
                     "Confirmation request cancelled",
                     {"request_id": request_id},
@@ -196,6 +242,10 @@ class ConfirmationManager:
         with self._lock:
             count = len(self._pending)
             self._pending.clear()
+            # P0: Clean up all wait events
+            for event in self._wait_events.values():
+                event.set()
+            self._wait_events.clear()
             if count > 0:
                 logger.info_data(
                     "All confirmation requests cancelled",
@@ -222,4 +272,9 @@ class ConfirmationManager:
     def shutdown(self) -> None:
         """Shutdown confirmation manager."""
         self.cancel_all()
+        # P0: Clean up all remaining wait events
+        with self._lock:
+            for event in self._wait_events.values():
+                event.set()
+            self._wait_events.clear()
         self._executor.shutdown(wait=False)

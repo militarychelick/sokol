@@ -63,19 +63,63 @@ class MetricsCollector:
         key = self._make_key(name, tags)
         self._gauges[key] = value
     
-    def observe_histogram(self, name: str, value: float, tags: Optional[dict[str, str]] = None) -> None:
+    def observe_histogram(self, name: str, value: float, tags: dict[str, str] = None) -> None:
         """
-        Observe a histogram metric.
+        Record a histogram observation.
         
         Args:
-            name: Metric name
-            value: Observed value
-            tags: Optional tags for the metric
+            name: Histogram name
+            value: Value to observe
+            tags: Optional tags for the histogram
         """
         key = self._make_key(name, tags)
         if key not in self._histograms:
-            self._histograms[key] = deque(maxlen=self._max_history)
+            self._histograms[key] = []
+        
         self._histograms[key].append(value)
+        # Keep only last N observations
+        if len(self._histograms[key]) > self._max_history:
+            self._histograms[key] = self._histograms[key][-self._max_history:]
+        
+        # Track slow state if p95 threshold exceeded
+        if name == "event_latency_ms":
+            self._check_slow_state(key)
+    
+    def _check_slow_state(self, histogram_key: str) -> None:
+        """
+        Check if system is in slow state based on p95 latency.
+        
+        Args:
+            histogram_key: Key of the histogram to check
+        """
+        if histogram_key not in self._histograms:
+            return
+        
+        values = self._histograms[histogram_key]
+        if len(values) < 10:  # Need at least 10 samples
+            return
+        
+        # Calculate p95
+        sorted_values = sorted(values)
+        p95_index = int(len(sorted_values) * 0.95)
+        p95_value = sorted_values[p95_index] if p95_index < len(sorted_values) else sorted_values[-1]
+        
+        # P2: Slow state threshold (1000ms)
+        slow_threshold = 1000.0
+        
+        if p95_value > slow_threshold:
+            self.set_gauge("system_slow_state", 1.0)
+        else:
+            self.set_gauge("system_slow_state", 0.0)
+    
+    def get_slow_state(self) -> bool:
+        """
+        Check if system is in slow state.
+        
+        Returns:
+            True if slow state, False otherwise
+        """
+        return self._gauges.get("system_slow_state", 0.0) == 1.0
     
     def get_histogram_stats(self, name: str, tags: Optional[dict[str, str]] = None) -> dict[str, float]:
         """

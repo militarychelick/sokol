@@ -24,13 +24,15 @@ class WakeWordDetector:
     Detects wake words to trigger voice input.
     """
 
-    def __init__(self, wake_words: Optional[list[str]] = None, engine: str = "porcupine") -> None:
+    def __init__(self, wake_words: Optional[list[str]] = None, engine: str = "porcupine", debounce_interval: float = 1.0, confidence_threshold: float = 0.0) -> None:
         """
         Initialize wake word detector.
 
         Args:
             wake_words: List of wake words for detection
             engine: Detection engine (porcupine, vosk)
+            debounce_interval: Minimum seconds between wake word triggers (default: 1.0)
+            confidence_threshold: Minimum confidence threshold for wake word detection (default: 0.0 = accept all)
         """
         self._wake_words = wake_words or ["sokol"]
         self._engine = engine
@@ -40,10 +42,18 @@ class WakeWordDetector:
         self._listening = False
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+        
+        # P0: Debounce/rate limiting
+        self._debounce_interval = debounce_interval
+        self._last_trigger_time = 0.0
+        self._dropped_count = 0
+        
+        # P2: Confidence threshold for production-level filtering
+        self._confidence_threshold = confidence_threshold
 
         logger.info_data(
             "Wake word detector initialized",
-            {"available": self._available, "engine": engine, "wake_words": self._wake_words},
+            {"available": self._available, "engine": engine, "wake_words": self._wake_words, "debounce_interval": debounce_interval},
         )
 
     def _check_availability(self) -> bool:
@@ -196,6 +206,7 @@ class WakeWordDetector:
         try:
             if self._engine == "porcupine":
                 import numpy as np
+                import time
 
                 # Convert audio data to numpy array
                 audio_array = np.frombuffer(audio_data, dtype=np.int16)
@@ -205,12 +216,60 @@ class WakeWordDetector:
                 result = self._detector.process(audio_array)
 
                 if result >= 0:
+                    # P0: Debounce check
+                    current_time = time.time()
+                    time_since_last = current_time - self._last_trigger_time
+                    
+                    if time_since_last < self._debounce_interval:
+                        # Drop this trigger due to debounce
+                        self._dropped_count += 1
+                        logger.warning_data(
+                            "Wake word dropped by debounce",
+                            {
+                                "time_since_last": f"{time_since_last:.2f}s",
+                                "debounce_interval": self._debounce_interval,
+                                "dropped_count": self._dropped_count
+                            }
+                        )
+                        return WakeWordEvent(word="", confidence=0.0)
+                    
+                    # Accept this trigger
+                    self._last_trigger_time = current_time
                     word = self._wake_words[result] if result < len(self._wake_words) else self._wake_words[0]
-                    logger.info_data("Wake word detected", {"word": word})
-                    return WakeWordEvent(word=word, confidence=1.0, audio_data=audio_data)
+                    confidence = 1.0  # Porcupine returns 0/1 for detection
+                    
+                    # P2: Check confidence threshold
+                    if confidence < self._confidence_threshold:
+                        self._dropped_count += 1
+                        logger.warning_data(
+                            "Wake word dropped by confidence threshold",
+                            {
+                                "word": word,
+                                "confidence": confidence,
+                                "threshold": self._confidence_threshold,
+                                "dropped_count": self._dropped_count
+                            }
+                        )
+                        return WakeWordEvent(word="", confidence=confidence)
+                    
+                    logger.info_data("Wake word detected", {"word": word, "dropped_count": self._dropped_count})
+                    return WakeWordEvent(word=word, confidence=confidence, audio_data=audio_data)
 
             return WakeWordEvent(word="", confidence=0.0)
 
         except Exception as e:
             logger.error_data("Wake word detection failed", {"error": str(e)})
             return WakeWordEvent(word="", confidence=0.0)
+    
+    def get_dropped_count(self) -> int:
+        """
+        Get the number of wake word triggers dropped by debounce.
+        
+        Returns:
+            Number of dropped triggers
+        """
+        return self._dropped_count
+    
+    def reset_dropped_count(self) -> None:
+        """Reset the dropped trigger counter."""
+        self._dropped_count = 0
