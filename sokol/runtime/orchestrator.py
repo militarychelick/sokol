@@ -4,7 +4,7 @@ import asyncio
 import signal
 import threading
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from sokol.core.config import Config, get_config
 from sokol.core.types import AgentEvent, AgentState, EventType
