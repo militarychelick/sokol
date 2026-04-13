@@ -3410,7 +3410,7 @@ class Orchestrator:
 
 
 
-                            raw_result = self._tool_registry.execute(tool_name, **input_contract.input)
+                            raw_result = self._tool_registry.execute(tool_name, input_contract.input)
 
 
 
@@ -4330,7 +4330,7 @@ class Orchestrator:
 
 
 
-                            raw_result = self._tool_registry.execute(tool_name, **input_contract.input)
+                            raw_result = self._tool_registry.execute(tool_name, input_contract.input)
 
 
 
