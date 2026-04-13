@@ -1536,7 +1536,7 @@ class Orchestrator:
 
 
 
-    def process_input(self, text: str, source: str = "user", screen_context: Optional[dict] = None) -> None:
+    def process_input(self, text: str, source: str = "user", screen_context: Optional[dict] = None) -> AgentResponse:
 
 
 
@@ -1611,33 +1611,19 @@ class Orchestrator:
         """
 
 
-
         if not self._state_machine.can_accept_input():
 
 
-
             logger.warning_data(
-
-
-
                 "Input ignored - agent busy",
-
-
-
                 {"state": self.state.value, "input": text[:50]},
-
-
-
             )
 
 
-
-            return
-
-
-
-
-
+            return self._response_builder.build(
+                final_text="Agent is busy, please try again.",
+                success=False
+            )
 
 
         logger.info_data(
@@ -1687,34 +1673,16 @@ class Orchestrator:
 
             # Confirmation commands
 
-
-
-
             if text_lower in ["да", "подтверждаю", "выполняй"]:
-
-
-
-
                 logger.info("User confirmed pending action")
-
-
-
-
-                # Execute pending action
-
-
-
-
+                # Execute pending action and return response
                 self._execute_pending_action()
-
-
-
-
-                return
-
-
-
-
+                # Build confirmation response
+                response = self._response_builder.build(
+                    final_text="Действие выполнено.",
+                    success=True
+                )
+                return response
 
 
 
@@ -1812,22 +1780,9 @@ class Orchestrator:
 
                 response = self._response_formatter.format(response, mode, state, context=text)
 
-
-
-
                 self.emit_response(response)
 
-
-
-
-                return
-
-
-
-
-
-
-
+                return response
 
 
         # Optional preprocessing (safe passthrough if not set)
@@ -1857,38 +1812,12 @@ class Orchestrator:
 
         memory_context = self._get_memory_context()
 
-
-
-        intent = None  # Default initialization to prevent UnboundLocalError
-
-
-
-        try:
-
-
-
-
         intent = None  # Default initialization to prevent UnboundLocalError
 
         try:
-
             intent = self._intent_extractor.extract_intent(text, memory_context)
-
-
-
         except Exception as e:
-
-
-
-            logger.warning_data("Intent extraction failed, using default", {"error": str(e)})
-
-
-
-
-
-
-        except Exception as e:
-
+            intent = None
             logger.warning_data("Intent extraction failed, using default", {"error": str(e)})
 
 
@@ -2310,7 +2239,7 @@ class Orchestrator:
 
 
 
-    def _execute_agent_loop(self, user_input: str, source: str = "user", memory_context_obj: Any = None, screen_context: Optional[dict] = None) -> None:
+    def _execute_agent_loop(self, user_input: str, source: str = "user", memory_context_obj: Any = None, screen_context: Optional[dict] = None) -> AgentResponse:
 
 
 
@@ -6882,7 +6811,7 @@ class Orchestrator:
 
 
 
-    def _persist_memory_events(self, memory_events: list[dict]) -> None:
+    def _persist_memory_events(self, memory_events: list[dict]) -> bool:
 
 
 
@@ -6913,20 +6842,6 @@ class Orchestrator:
 
 
         """
-
-
-
-
-        if not memory_events or not self._memory_manager:
-
-
-
-
-            return
-
-
-
-
 
 
 
@@ -7191,27 +7106,12 @@ class Orchestrator:
 
 
 
-
                 logger.warning_data(
-
-
-
-
                     "Failed to persist memory event",
-
-
-
-
                     {"error": str(e)},
-
-
-
-
                 )
 
-
-
-
+        return True
 
 
 
