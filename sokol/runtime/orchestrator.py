@@ -3311,7 +3311,8 @@ class Orchestrator:
 
 
 
-                            raw_result = self._tool_registry.execute(tool_name, input_contract.input)
+                            result = self._tool_registry.execute(tool_name, input_contract.input)
+                            raw_result = result.unwrap() if result.is_ok() else None
 
 
 
@@ -4231,7 +4232,8 @@ class Orchestrator:
 
 
 
-                            raw_result = self._tool_registry.execute(tool_name, input_contract.input)
+                            result = self._tool_registry.execute(tool_name, input_contract.input)
+                            raw_result = result.unwrap() if result.is_ok() else None
 
 
 
@@ -6042,7 +6044,8 @@ class Orchestrator:
 
 
 
-            result = self._tool_registry.execute(tool_name, args)
+            exec_result = self._tool_registry.execute(tool_name, args)
+            result = exec_result.unwrap() if exec_result.is_ok() else None
 
 
 
