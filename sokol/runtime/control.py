@@ -1,5 +1,6 @@
 """Control Layer - risk assessment and confirmation logic."""
 
+import threading
 from dataclasses import dataclass, field
 from typing import Any, Optional
 from enum import Enum
@@ -60,6 +61,7 @@ class ControlLayer:
             require_confirmation_medium: Whether to require confirmation for medium risk
             task_manager: Optional TaskManager for task risk assessment
         """
+        self._lock = threading.RLock()
         self._tool_registry = tool_registry
         self._require_confirmation_medium = require_confirmation_medium
         self._task_manager = task_manager

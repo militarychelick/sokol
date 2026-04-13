@@ -85,12 +85,32 @@ logging.setLoggerClass(SokolLogger)
 _loggers: dict[str, SokolLogger] = {}
 
 
+class UILogHandler(logging.Handler):
+    """Custom logging handler that forwards logs to UI callback."""
+
+    def __init__(self, callback: Any) -> None:
+        """Initialize UI log handler with callback function."""
+        super().__init__()
+        self._callback = callback
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Emit log record to UI callback."""
+        try:
+            log_line = self.format(record)
+            if self._callback:
+                self._callback(log_line)
+        except Exception:
+            # Don't raise exceptions in logging to prevent infinite loops
+            pass
+
+
 def setup_logging(
     level: str = "INFO",
     log_file: str | None = None,
     max_size: int = 10485760,
     backup_count: int = 5,
     use_json: bool = False,
+    ui_log_callback: Any = None,
 ) -> None:
     """Setup logging configuration."""
     # Ensure log directory exists
@@ -127,6 +147,13 @@ def setup_logging(
             StructuredFormatter() if use_json else TextFormatter()
         )
         root_logger.addHandler(file_handler)
+
+    # UI log handler (if callback provided)
+    if ui_log_callback:
+        ui_handler = UILogHandler(ui_log_callback)
+        ui_handler.setLevel(logging.DEBUG)
+        ui_handler.setFormatter(TextFormatter())
+        root_logger.addHandler(ui_handler)
 
 
 def get_logger(name: str) -> SokolLogger:

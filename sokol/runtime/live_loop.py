@@ -868,7 +868,7 @@ class LiveLoopController:
             
             # Send response callback
             if self._on_response and response is not None:
-                self._on_response(response.formatted_message)
+                self._on_response(response.user_text)
             elif self._on_response and response is None:
                 logger.warning("Orchestrator returned None response, skipping callback")
             
@@ -900,6 +900,9 @@ class LiveLoopController:
             logger.error_data("Orchestrator error", {"error": str(e), "traceback": traceback.format_exc()})
             self._update_state(AgentState.ERROR)
         finally:
+            # Always reset to IDLE to prevent stale ERROR state
+            if self._orchestrator.state == AgentState.ERROR:
+                self._update_state(AgentState.IDLE)
             # V2: Track event latency
             if event_id in self._event_start_times:
                 latency_ms = (time.time() - self._event_start_times[event_id]) * 1000

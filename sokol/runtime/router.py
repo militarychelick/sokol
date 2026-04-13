@@ -261,7 +261,11 @@ class IntentRouter:
                     continue
 
             except Exception as e:
-                logger.error_data("LLM routing failed", {"error": str(e), "retry": retry_count})
+                import traceback
+                logger.error_data(
+                    "LLM routing failed",
+                    {"error": str(e), "retry": retry_count, "traceback": traceback.format_exc()}
+                )
                 retry_count += 1
 
         # All retries exhausted

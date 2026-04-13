@@ -111,24 +111,31 @@ class MemoryManager:
 
     def get_recent_interactions(self, limit: int = 20) -> list[dict[str, Any]]:
         """Get recent interactions for UI display."""
-        if not self._current_session:
-            return []
+        try:
+            if not self._current_session:
+                return []
 
-        entries = self._session.get_conversation(self._current_session.id, limit)
-        # Convert to format expected by UI: timestamp, source, input_text, response_text
-        interactions = []
-        for i in range(0, len(entries), 2):  # Process pairs (user/assistant)
-            if i + 1 < len(entries):
-                user_entry = entries[i]
-                assistant_entry = entries[i + 1]
-                if user_entry.role == "user" and assistant_entry.role == "assistant":
-                    interactions.append({
-                        "timestamp": user_entry.timestamp,
-                        "source": "user",
-                        "input_text": user_entry.content,
-                        "response_text": assistant_entry.content
-                    })
-        return interactions
+            entries = self._session.get_conversation(self._current_session.id, limit)
+            if not entries:
+                return []
+            
+            # Convert to format expected by UI: timestamp, source, input_text, response_text
+            interactions = []
+            for i in range(0, len(entries), 2):  # Process pairs (user/assistant)
+                if i + 1 < len(entries):
+                    user_entry = entries[i]
+                    assistant_entry = entries[i + 1]
+                    if user_entry.role == "user" and assistant_entry.role == "assistant":
+                        interactions.append({
+                            "timestamp": user_entry.timestamp,
+                            "source": "user",
+                            "input_text": user_entry.content,
+                            "response_text": assistant_entry.content
+                        })
+            return interactions
+        except Exception as e:
+            logger.error(f"Failed to get recent interactions: {e}")
+            return []
 
     def set_context(self, key: str, value: Any) -> bool:
         """Set context in current session."""

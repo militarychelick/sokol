@@ -101,54 +101,50 @@ class LLMManager:
         use_fallback: bool = True,
         **kwargs: Any,
     ) -> LLMResponse:
-        """
-        Generate completion with fallback.
-
-        Tries primary provider first, falls back on failure/timeout.
-        """
-        provider = self.get_primary_provider()
+        """Get completion from primary or fallback provider."""
+        provider_name = self._config.llm.provider
+        provider = self._providers.get(provider_name)
 
         if not provider:
-            logger.warning("No primary provider available")
+            logger.error(f"Primary provider {provider_name} not found")
             if use_fallback:
-                provider = self.get_fallback_provider()
-            if not provider:
-                raise RuntimeError("No LLM providers available")
+                return self._complete_fallback(messages, **kwargs)
+            raise ValueError(f"Provider {provider_name} not found")
 
-        # Try primary
         try:
-            logger.debug_data(
-                "Trying primary provider",
-                {"provider": provider.name, "model": provider.model},
-            )
-            return provider.complete(messages, **kwargs)
-
+            # Log request (minimal)
+            logger.info_data("LLM Request", {"provider": provider_name, "msg_count": len(messages)})
+            
+            response = provider.complete(messages, **kwargs)
+            
+            # Log response (minimal)
+            logger.info_data("LLM Response", {"provider": provider_name, "char_count": len(response.text)})
+            
+            return response
         except Exception as e:
             import traceback
-            logger.error_data(
-                "Primary provider failed",
-                {"provider": provider.name, "error": str(e), "traceback": traceback.format_exc()},
-            )
+            logger.error_data(f"Primary provider {provider_name} failed", 
+                             {"error": str(e), "traceback": traceback.format_exc()})
+            
+            if use_fallback:
+                return self._complete_fallback(messages, **kwargs)
+            
+            # If no fallback requested, return empty response instead of crashing
+            return LLMResponse(text="LLM error", success=False, provider=provider_name)
 
-            if not use_fallback:
-                raise
-
-            # Try fallback
-            fallback = self.get_fallback_provider()
-            if fallback and fallback.name != provider.name:
-                logger.info_data(
-                    "Using fallback provider",
-                    {"provider": fallback.name},
-                )
-                try:
-                    return fallback.complete(messages, **kwargs)
-                except Exception as fallback_error:
-                    logger.error_data(
-                        "Fallback provider also failed",
-                        {"provider": fallback.name, "error": str(fallback_error), "traceback": traceback.format_exc()},
-                    )
-
-            raise RuntimeError(f"All providers failed: {e}")
+    def _complete_fallback(self, messages: list[LLMMessage], **kwargs: Any) -> LLMResponse:
+        """Try all available providers as fallback."""
+        for name, provider in self._providers.items():
+            if name == self._config.llm.provider:
+                continue
+            
+            try:
+                logger.info(f"Trying fallback provider: {name}")
+                return provider.complete(messages, **kwargs)
+            except Exception as e:
+                logger.warning(f"Fallback provider {name} failed: {e}")
+        
+        return LLMResponse(text="All LLM providers failed", success=False, provider="none")
 
     async def complete_async(
         self,

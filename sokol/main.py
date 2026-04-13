@@ -28,12 +28,21 @@ def main() -> int:
     config = get_config()
 
     # Setup logging
+    def ui_log_callback(log_line: str) -> None:
+        """Forward logs to main window via signal."""
+        if 'main_window' in locals() or 'main_window' in globals():
+            try:
+                main_window.log_received.emit(log_line)
+            except Exception:
+                pass
+
     setup_logging(
         level=config.logging.level,
         log_file=config.logging.file,
         max_size=config.logging.max_size,
         backup_count=config.logging.backup_count,
         use_json=config.logging.format == "json",
+        ui_log_callback=ui_log_callback,
     )
 
     logger.info(f"Starting {config.agent.name} v0.1.0")
@@ -103,40 +112,42 @@ def main() -> int:
 
     # Wire UI to loop controller (unified input stream)
     def on_user_input(text: str) -> None:
-        # UI widget already adds the message to display, so we don't add it again
-        memory.add_message("user", text)
         # Submit through live loop controller
         loop_controller.submit_text(text)
 
-    def on_response(text: str) -> None:
-        main_window.add_assistant_message(text)
-        memory.add_message("assistant", text)
-        # Update UI panels after each response
-        update_ui_panels()
-
+    # Wire state change callback
     def on_state_change(state: AgentState) -> None:
-        main_window.update_state(state)
+        """Handle agent state changes."""
+        main_window.state_changed.emit(state)
         tray.update_state(state)
 
-    # Set loop controller callbacks
+    # Wire response callback
+    def on_response(message: str) -> None:
+        """Handle agent responses."""
+        main_window.response_received.emit(message)
+
+    # Wire loop controller callbacks
     loop_controller.set_state_change_callback(on_state_change)
     loop_controller.set_response_callback(on_response)
 
     # Wire history and logs updates
     def update_ui_panels() -> None:
         """Update UI panels with current data."""
-        # Update history from memory
-        interactions = memory.get_recent_interactions(limit=20)
-        history_text = "\n".join([
-            f"[{i['timestamp']}] {i['source']}: {i['input_text'][:50]}... -> {i['response_text'][:50]}..."
-            for i in interactions
-        ])
-        main_window.update_history(history_text)
-        
-        # Update logs from log file if available
-        log_file = config.logging.file
-        if log_file and Path(log_file).exists():
-            main_window.load_logs(log_file)
+        try:
+            # Update history from memory
+            interactions = memory.get_recent_interactions(limit=20)
+            history_text = "\n".join([
+                f"[{i['timestamp']}] {i['source']}: {i['input_text'][:50]}... -> {i['response_text'][:50]}..."
+                for i in interactions
+            ])
+            main_window.history_updated.emit(history_text)
+            
+            # Update logs from log file if available
+            log_file = config.logging.file
+            if log_file and Path(log_file).exists():
+                main_window.load_logs(log_file)
+        except Exception as e:
+            logger.error(f"Failed to update UI panels: {e}")
 
     # Wire orchestrator callbacks (response and state only - input handled by UI signal)
     # Note: on_input is NOT set here to avoid double callback invocation
@@ -144,7 +155,8 @@ def main() -> int:
     orchestrator.set_callbacks(
         on_input=None,  # Handled by UI signal to avoid duplication
         on_response=on_response,
-        on_preprocess=None,  # No preprocessing callback needed
+        on_confirm=None,  # Will use default or be wired later
+        on_preprocess=None,
     )
     orchestrator.event_bus.subscribe(EventType.STATE_CHANGE, on_state_change)
 

@@ -34,6 +34,10 @@ class MainWindow(QMainWindow):
     # Signals
     message_sent = pyqtSignal(str)  # User sent a message
     emergency_stop_requested = pyqtSignal()
+    response_received = pyqtSignal(str)
+    state_changed = pyqtSignal(object)
+    log_received = pyqtSignal(str)
+    history_updated = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -226,6 +230,10 @@ class MainWindow(QMainWindow):
     def _connect_signals(self) -> None:
         """Connect signals."""
         self._send_button.clicked.connect(self._on_send)
+        self.response_received.connect(self.add_assistant_message)
+        self.state_changed.connect(self.update_state)
+        self.log_received.connect(self.append_log)
+        self.history_updated.connect(self.update_history)
 
     def _on_send(self) -> None:
         """Handle send button click."""
@@ -327,9 +335,23 @@ class MainWindow(QMainWindow):
         """Clear chat history."""
         self._chat_history.clear()
 
+    def append_log(self, log_line: str) -> None:
+        """Append a single log line to logs viewer (for real-time UI logging)."""
+        self._logs_viewer.append(log_line)
+        # Auto-scroll to bottom
+        cursor = self._logs_viewer.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self._logs_viewer.setTextCursor(cursor)
+
     def update_history(self, history_data: str) -> None:
         """Update history viewer with data."""
-        self._history_viewer.setText(history_data)
+        try:
+            if history_data is None:
+                history_data = ""
+            self._history_viewer.setText(history_data)
+        except Exception as e:
+            logger.error(f"Failed to update history: {e}")
+            self._history_viewer.setText(f"Error loading history: {e}")
 
     def update_logs(self, log_data: str) -> None:
         """Update logs viewer with data."""

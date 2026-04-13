@@ -4,7 +4,7 @@ import json
 import time
 from typing import Any, AsyncIterator, Iterator
 
-import httpx
+import requests
 
 from sokol.observability.logging import get_logger
 
@@ -39,7 +39,7 @@ class OllamaProvider(LLMProvider):
     def is_available(self) -> bool:
         """Check if Ollama server is running."""
         try:
-            response = httpx.get(
+            response = requests.get(
                 f"{self.base_url}/api/tags",
                 timeout=5.0,
             )
@@ -92,7 +92,7 @@ class OllamaProvider(LLMProvider):
             },
         }
 
-        response = httpx.post(
+        response = requests.post(
             f"{self.base_url}/api/generate",
             json=payload,
             timeout=self.timeout,
@@ -149,12 +149,11 @@ class OllamaProvider(LLMProvider):
             },
         }
 
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/api/generate",
-                json=payload,
-                timeout=self.timeout,
-            )
+        response = requests.post(
+            f"{self.base_url}/api/generate",
+            json=payload,
+            timeout=self.timeout,
+        )
 
         latency_ms = (time.time() - start_time) * 1000
 
@@ -194,17 +193,17 @@ class OllamaProvider(LLMProvider):
             },
         }
 
-        with httpx.stream(
-            "POST",
+        response = requests.post(
             f"{self.base_url}/api/chat",
             json=payload,
             timeout=self.timeout,
-        ) as response:
-            for line in response.iter_lines():
-                if line:
-                    data = json.loads(line)
-                    if "message" in data and "content" in data["message"]:
-                        yield data["message"]["content"]
+            stream=True,
+        )
+        for line in response.iter_lines():
+            if line:
+                data = json.loads(line)
+                if "message" in data and "content" in data["message"]:
+                    yield data["message"]["content"]
 
     async def stream_async(
         self,
@@ -224,15 +223,14 @@ class OllamaProvider(LLMProvider):
             },
         }
 
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/api/chat",
-                json=payload,
-                timeout=self.timeout,
-            ) as response:
-                async for line in response.aiter_lines():
-                    if line:
-                        data = json.loads(line)
-                        if "message" in data and "content" in data["message"]:
-                            yield data["message"]["content"]
+        response = requests.post(
+            f"{self.base_url}/api/chat",
+            json=payload,
+            timeout=self.timeout,
+            stream=True,
+        )
+        for line in response.iter_lines():
+            if line:
+                data = json.loads(line)
+                if "message" in data and "content" in data["message"]:
+                    yield data["message"]["content"]
