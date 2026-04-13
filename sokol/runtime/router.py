@@ -177,7 +177,7 @@ class IntentRouter:
         return ProposedAction(
             source=DecisionSource.RULE_BASED,
             action_type="final_answer",
-            text=f"Я получил ваш запрос: '{user_input}'. LLM недоступен, поэтому я не могу обработать это сообщение. Пожалуйста, запустите Ollama или настройте Google AI API.",
+            text="Извините, я не могу обработать этот запрос. Система обработки сообщений недоступна. Пожалуйста, запустите Ollama или настройте Google AI API.",
             confidence=1.0,
         )
 

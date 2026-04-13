@@ -2195,13 +2195,23 @@ class Orchestrator:
 
 
 
+        response: AgentResponse | None = None
+
         try:
 
+            response = self._execute_agent_loop(text, source, memory_context_obj, screen_context)
 
+        except Exception as e:
 
-            self._execute_agent_loop(text, source, memory_context_obj, screen_context)
+            logger.error_data("process_input exception", {"error": str(e)})
 
+            response = self._response_builder.build(
 
+                final_text="Error processing request.",
+
+                success=False
+
+            )
 
         finally:
 
@@ -2233,10 +2243,14 @@ class Orchestrator:
 
                 self._state_machine.force_transition(AgentState.IDLE, "finally_cleanup")
 
+        # Fallback: ensure we always return a valid response
+        if response is None:
+            response = self._response_builder.build(
+                final_text="Error: No response generated.",
+                success=False
+            )
 
-
-
-
+        return response
 
 
     def _execute_agent_loop(self, user_input: str, source: str = "user", memory_context_obj: Any = None, screen_context: Optional[dict] = None) -> AgentResponse:
@@ -2807,8 +2821,7 @@ class Orchestrator:
                     self._state_machine.transition(AgentState.IDLE, "awaiting_confirmation")
 
 
-
-                    return  # Stop execution loop
+                    return response  # Return confirmation response
 
 
 
