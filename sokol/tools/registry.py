@@ -7,6 +7,7 @@ from typing import Any, Type
 
 from sokol.core.types import RiskLevel, ToolSchema
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 from sokol.tools.base import Tool, ToolResult
 
 logger = get_logger("sokol.tools.registry")
@@ -52,14 +53,14 @@ class ToolRegistry:
             },
         )
 
-    def unregister(self, tool_name: str) -> bool:
+    def unregister(self, tool_name: str) -> Result[bool]:
         """Unregister a tool."""
         if tool_name in self._tools:
             del self._tools[tool_name]
             del self._schemas[tool_name]
             logger.info_data("Tool unregistered", {"tool": tool_name})
-            return True
-        return False
+            return Result.ok(True)
+        return Result.ok(False)
 
     def get(self, tool_name: str) -> Tool[Any] | None:
         """Get tool by name."""
@@ -69,35 +70,35 @@ class ToolRegistry:
         """Get tool schema by name."""
         return self._schemas.get(tool_name)
 
-    def has_tool(self, tool_name: str) -> bool:
+    def has_tool(self, tool_name: str) -> Result[bool]:
         """Check if tool exists."""
-        return tool_name in self._tools
+        return Result.ok(tool_name in self._tools)
 
-    def list_tools(self) -> list[str]:
+    def list_tools(self) -> Result[list[str]]:
         """List all registered tool names."""
-        return list(self._tools.keys())
+        return Result.ok(list(self._tools.keys()))
 
-    def list_schemas(self) -> list[ToolSchema]:
+    def list_schemas(self) -> Result[list[ToolSchema]]:
         """List all tool schemas."""
-        return list(self._schemas.values())
+        return Result.ok(list(self._schemas.values()))
 
-    def list_by_risk(self, risk_level: RiskLevel) -> list[str]:
+    def list_by_risk(self, risk_level: RiskLevel) -> Result[list[str]]:
         """List tools by risk level."""
-        return [
+        return Result.ok([
             name
             for name, schema in self._schemas.items()
             if schema.risk_level == risk_level
-        ]
+        ])
 
-    def get_dangerous_tools(self) -> list[str]:
+    def get_dangerous_tools(self) -> Result[list[str]]:
         """Get list of dangerous tools."""
         return self.list_by_risk(RiskLevel.DANGEROUS)
 
-    def get_write_tools(self) -> list[str]:
+    def get_write_tools(self) -> Result[list[str]]:
         """Get list of write tools."""
         return self.list_by_risk(RiskLevel.WRITE)
 
-    def get_read_tools(self) -> list[str]:
+    def get_read_tools(self) -> Result[list[str]]:
         """Get list of read-only tools."""
         return self.list_by_risk(RiskLevel.READ)
 
@@ -112,13 +113,15 @@ class ToolRegistry:
         self,
         tool_name: str,
         params: dict[str, Any],
-    ) -> ToolResult[Any]:
+    ) -> Result[ToolResult[Any]]:
         """Execute a tool by name."""
         tool = self.get(tool_name)
         if not tool:
-            return ToolResult(
-                success=False,
-                error=f"Tool not found: {tool_name}",
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=f"Tool not found: {tool_name}",
+                )
             )
 
         logger.info_data(
