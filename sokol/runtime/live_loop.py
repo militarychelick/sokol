@@ -866,11 +866,8 @@ class LiveLoopController:
             # Update state to idle
             self._update_state(AgentState.IDLE)
             
-            # Send response callback
-            if self._on_response and response is not None:
-                self._on_response(response.user_text)
-            elif self._on_response and response is None:
-                logger.warning("Orchestrator returned None response, skipping callback")
+            # NOTE: Response callback is already called by orchestrator.emit_response()
+            # No need to call it again here to avoid duplication
             
             # FIX #4: Verify observer non-interference (observer should not affect execution) - enforcement mode
             self._verify_enforced(

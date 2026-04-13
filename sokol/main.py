@@ -21,18 +21,40 @@ from sokol.perception.wake_word import WakeWordDetector
 
 logger = get_logger("sokol.main")
 
+# Global reference for main_window (for logging callback)
+_main_window_ref = None
+
+def set_main_window_ref(window):
+    """Set global reference to main window for logging callback."""
+    global _main_window_ref
+    _main_window_ref = window
+
 
 def main() -> int:
     """Main entry point."""
+    global _main_window_ref
+    
     # Load configuration
     config = get_config()
 
-    # Setup logging
+    # Initialize UI FIRST (before logging)
+    app = SokolApp(config)
+    app.initialize(sys.argv)
+
+    main_window = MainWindow()
+    app.set_main_window(main_window)
+    set_main_window_ref(main_window)
+
+    tray = TrayIcon(main_window)
+    app.set_tray(tray)
+
+    # Setup logging AFTER UI is ready
     def ui_log_callback(log_line: str) -> None:
         """Forward logs to main window via signal."""
-        if 'main_window' in locals() or 'main_window' in globals():
+        global _main_window_ref
+        if _main_window_ref:
             try:
-                main_window.log_received.emit(log_line)
+                _main_window_ref.log_received.emit(log_line)
             except Exception:
                 pass
 
@@ -100,20 +122,10 @@ def main() -> int:
     emergency_handler.set_loop_controller(loop_controller)
     # FIX: No fallback callback - emergency must go through pipeline (fail-stop model)
 
-    # Initialize UI
-    app = SokolApp(config)
-    app.initialize(sys.argv)
-
-    main_window = MainWindow()
-    app.set_main_window(main_window)
-
-    tray = TrayIcon(main_window)
-    app.set_tray(tray)
 
     # Wire UI to loop controller (unified input stream)
     def on_user_input(text: str) -> None:
-        # UI widget already adds the message to display, so we don't add it again
-        memory.add_message("user", text)
+        # Don't add to memory here - orchestrator will do it
         # Submit through live loop controller
         loop_controller.submit_text(text)
 
@@ -126,7 +138,6 @@ def main() -> int:
     # Wire response callback
     def on_response(message: str) -> None:
         """Handle agent responses."""
-        # ONLY emit signal, do not call UI methods directly
         main_window.response_received.emit(message)
 
     # Wire loop controller callbacks
@@ -157,8 +168,8 @@ def main() -> int:
     # UI signal message_sent already calls on_user_input
     orchestrator.set_callbacks(
         on_input=None,  # Handled by UI signal to avoid duplication
-        on_response=None, # Disable orchestrator direct callback to prevent double echo
-        on_confirm=None,
+        on_response=on_response,
+        on_confirm=None,  # Will use default or be wired later
         on_preprocess=None,
     )
     orchestrator.event_bus.subscribe(EventType.STATE_CHANGE, on_state_change)
