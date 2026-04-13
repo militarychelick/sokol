@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 
 logger = get_logger("sokol.runtime.task_layer")
 
@@ -238,7 +239,7 @@ class TaskManager:
         goal: str,
         steps: List[str] | None = None,
         risk_level: str = "low",
-    ) -> Task:
+    ) -> Result[Task]:
         """
         Create a new task.
 
@@ -260,7 +261,7 @@ class TaskManager:
 
         self._active_task = task
         self._task_history.append(task)
-        
+
         # P0: Persist task
         self._clear_active_flag()
         self._save_task(task, is_active=True)
@@ -270,23 +271,23 @@ class TaskManager:
             {"task_id": task_id, "goal": goal, "risk_level": risk_level},
         )
 
-        return task
+        return Result.ok(task)
 
-    def get_active_task(self) -> Optional[Task]:
+    def get_active_task(self) -> Result[Task | None]:
         """
         Get the currently active task.
 
         Returns:
             Active task or None
         """
-        return self._active_task
+        return Result.ok(self._active_task)
 
     def update_task_status(
         self,
         task_id: str,
         status: TaskStatus,
         current_step: Optional[int] = None,
-    ) -> Optional[Task]:
+    ) -> Result[Task]:
         """
         Update task status.
 
@@ -296,7 +297,7 @@ class TaskManager:
             current_step: Optional current step index
 
         Returns:
-            Updated task or None if not found
+            Updated task or error if not found
         """
         task = self._find_task(task_id)
         if not task:
@@ -322,9 +323,9 @@ class TaskManager:
             {"task_id": task_id, "status": status.value},
         )
 
-        return task
+        return Result.ok(task)
 
-    def complete_task(self, task_id: str) -> Optional[Task]:
+    def complete_task(self, task_id: str) -> Result[Task]:
         """
         Mark task as completed.
 
@@ -332,20 +333,21 @@ class TaskManager:
             task_id: Task ID
 
         Returns:
-            Completed task or None if not found
+            Completed task or error if not found
         """
-        task = self.update_task_status(task_id, TaskStatus.COMPLETED)
-        if task:
+        task_result = self.update_task_status(task_id, TaskStatus.COMPLETED)
+        if task_result.is_ok():
+            task = task_result.unwrap()
             # Clear active task if it was the one completed
             if self._active_task and self._active_task.task_id == task_id:
                 self._active_task = None
                 # P0: Clear active flag in database
                 self._conn.execute("UPDATE tasks SET is_active = 0 WHERE task_id = ?", (task_id,))
                 self._conn.commit()
+            return task_result
+        return task_result
 
-        return task
-
-    def fail_task(self, task_id: str, reason: str = "") -> Optional[Task]:
+    def fail_task(self, task_id: str, reason: str = "") -> Result[Task]:
         """
         Mark task as failed.
 
@@ -354,10 +356,11 @@ class TaskManager:
             reason: Failure reason
 
         Returns:
-            Failed task or None if not found
+            Failed task or error if not found
         """
-        task = self.update_task_status(task_id, TaskStatus.FAILED)
-        if task:
+        task_result = self.update_task_status(task_id, TaskStatus.FAILED)
+        if task_result.is_ok():
+            task = task_result.unwrap()
             task.metadata["failure_reason"] = reason
             # Clear active task if it was the one failed
             if self._active_task and self._active_task.task_id == task_id:
@@ -365,8 +368,8 @@ class TaskManager:
                 # P0: Clear active flag in database
                 self._conn.execute("UPDATE tasks SET is_active = 0 WHERE task_id = ?", (task_id,))
                 self._conn.commit()
-
-        return task
+            return task_result
+        return task_result
 
     def is_request_related_to_task(
         self,
@@ -468,9 +471,9 @@ class TaskManager:
             "updated_at": task.updated_at,
         }
 
-    def get_active_task(self) -> Task | None:
+    def get_active_task(self) -> Result[Task | None]:
         """Get currently active task."""
-        return self._active_task
+        return Result.ok(self._active_task)
 
     def cancel_all(self, reason: str = "cancelled") -> int:
         """
