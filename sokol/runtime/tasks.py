@@ -85,7 +85,12 @@ class TaskManager:
         with self._lock:
             task = self._tasks.get(task_id)
             if not task:
-                return None
+                from sokol.runtime.errors import ErrorBuilder, ErrorCategory
+                raise ErrorBuilder.from_exception(
+                    ValueError(f"Task not found: {task_id}"),
+                    category=ErrorCategory.VALIDATION,
+                    context={"task_id": task_id}
+                )
 
             if status:
                 task.status = status
@@ -265,7 +270,15 @@ class TaskManager:
 
     def get_task(self, task_id: str) -> TaskInfo | None:
         """Get task by ID."""
-        return self._tasks.get(task_id)
+        task = self._tasks.get(task_id)
+        if not task:
+            from sokol.runtime.errors import ErrorBuilder, ErrorCategory
+            raise ErrorBuilder.from_exception(
+                ValueError(f"Task not found: {task_id}"),
+                category=ErrorCategory.VALIDATION,
+                context={"task_id": task_id}
+            )
+        return task
 
     def get_all_tasks(self) -> list[TaskInfo]:
         """Get all tasks."""

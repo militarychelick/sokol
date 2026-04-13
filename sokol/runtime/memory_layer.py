@@ -338,12 +338,13 @@ class MemoryLayer:
         Returns:
             Active task context or None
         """
+        # PHASE 2 FIX: Return empty dict instead of None (no None runtime)
         if not self._task_manager:
-            return None
+            return {}
 
         active_task = self._task_manager.get_active_task()
         if not active_task:
-            return None
+            return {}
 
         # Get task summary from memory
         task_memory = self._task_memory.get(active_task.task_id, {})

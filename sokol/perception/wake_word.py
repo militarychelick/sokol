@@ -258,19 +258,25 @@ class WakeWordDetector:
                         return WakeWordEvent(word="", confidence=confidence)
                     
                     # Phase 2.1.1: Check backpressure throttling
+                    # FIXED: Remove random-based throttling for determinism
+                    # Use deterministic counter-based throttling instead
                     if self._backpressure_layer:
                         throttle_factor = self._backpressure_layer.get_throttle_factor()
                         if throttle_factor < 1.0:
-                            import random
-                            # Skip trigger with probability (1 - throttle_factor)
-                            if random.random() > throttle_factor:
-                                self._throttled_count += 1
+                            # Deterministic throttling: skip every Nth trigger based on throttle_factor
+                            # throttle_factor < 1.0 means we skip some triggers
+                            # throttle_factor = 0.5 means we skip every 2nd trigger
+                            # throttle_factor = 0.1 means we skip 9 out of 10 triggers
+                            skip_interval = int(1.0 / throttle_factor) if throttle_factor > 0 else 1
+                            self._throttled_count += 1
+                            if self._throttled_count % skip_interval != 0:
                                 logger.warning_data(
-                                    "Wake word throttled by backpressure",
+                                    "Wake word throttled by backpressure (deterministic)",
                                     {
                                         "word": word,
                                         "throttle_factor": throttle_factor,
-                                        "throttled_count": self._throttled_count
+                                        "throttled_count": self._throttled_count,
+                                        "skip_interval": skip_interval
                                     }
                                 )
                                 return WakeWordEvent(word="", confidence=confidence)

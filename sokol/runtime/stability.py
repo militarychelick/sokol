@@ -214,7 +214,7 @@ class StabilityChecker:
             for result in tool_results:
                 if hasattr(result, "success") and not result.success:
                     failures += 1
-                elif isinstance(result, dict) and not result.get("success", True):
+                elif isinstance(result, dict) and not result.get("success", False):  # Default to False - strict validation
                     failures += 1
 
             failure_ratio = failures / len(tool_results) if tool_results else 0

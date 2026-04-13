@@ -74,11 +74,13 @@ from sokol.runtime.intent import RuleBasedIntentHandler, Intent
 
 
 from sokol.runtime.router import IntentRouter, ProposedAction, DecisionSource, ToolChain, ToolChainStep, ConditionEvaluator
+from sokol.runtime.result import Result
 
 
 
 
 from sokol.runtime.response import ResponseBuilder, AgentResponse, ResponseMode, ResponseFormatter
+from sokol.runtime.errors import ErrorBuilder, ErrorCategory
 
 
 
@@ -683,68 +685,19 @@ class Orchestrator:
 
 
 
+
         # Callbacks
 
-
-
-
         self._on_input_callback: Callable[[str], None] | None = None
-
-
-
-
-        self._on_response_callback: Callable[[str], None] | None = None
-
-
-
-
         self._on_confirm_callback: Callable[[Any], bool] | None = None
-
-
-
-
-
-
-
-
-
         # Optional preprocessing callback for perception adapters (defaults to passthrough)
-
-
-
-
         self._preprocess_callback: Callable[[str], str] | None = None
 
-
-
-
-
-
-
-
-
         # Register emergency stop handler
-
-
-
-
         self._event_bus.subscribe(
-
-
-
-
             EventType.EMERGENCY_STOP,
-
-
-
-
             self._handle_emergency_stop,
-
-
-
-
         )
-
 
 
 
@@ -1359,24 +1312,9 @@ class Orchestrator:
 
                         
 
-
-                        
-
-
                         self._state_machine.force_transition(
-
-
-
-
-                            AgentState.IDLE, "watchdog_timeout"
-
-
-
-
+                            AgentState.ERROR, "watchdog_timeout"
                         )
-
-
-
 
                         self._state_enter_time = time.time()
 
@@ -1458,12 +1396,8 @@ class Orchestrator:
 
 
 
-        # Force state to idle
-
-
-
-
-        self._state_machine.force_transition(AgentState.IDLE, "emergency_stop")
+        # Force state to error (emergency stop is a critical failure)
+        self._state_machine.force_transition(AgentState.ERROR, "emergency_stop")
 
 
 
@@ -1536,7 +1470,7 @@ class Orchestrator:
 
 
 
-    def process_input(self, text: str, source: str = "user", screen_context: Optional[dict] = None) -> AgentResponse:
+    def process_input(self, text: str, source: str = "user", screen_context: Optional[dict] = None) -> Result[AgentResponse]:
 
 
 
@@ -1620,9 +1554,11 @@ class Orchestrator:
             )
 
 
-            return self._response_builder.build(
-                final_text="Agent is busy, please try again.",
-                success=False
+            return Result.ok(
+                self._response_builder.build(
+                    final_text="Agent is busy, please try again.",
+                    success=False
+                )
             )
 
 
@@ -1643,13 +1579,9 @@ class Orchestrator:
 
         )
 
-
-
-
-
-
-
-
+        # Memory read FIRST (before cancel/confirm checks) to ensure consistent context across all paths
+        # This prevents context inconsistency between cancel/confirm/normal/exception paths
+        memory_context_obj = self._memory_layer.retrieve_context(text, limit=3)
 
         # Check for confirmation/cancel commands (if pending action exists)
 
@@ -1675,14 +1607,10 @@ class Orchestrator:
 
             if text_lower in ["да", "подтверждаю", "выполняй"]:
                 logger.info("User confirmed pending action")
-                # Execute pending action and return response
-                self._execute_pending_action()
-                # Build confirmation response
-                response = self._response_builder.build(
-                    final_text="Действие выполнено.",
-                    success=True
-                )
-                return response
+                # Execute pending action and return real response
+                # Pass memory_context_obj to ensure consistent context across all paths
+                response = self._execute_pending_action(memory_context_obj)
+                return Result.ok(response)
 
 
 
@@ -1780,9 +1708,7 @@ class Orchestrator:
 
                 response = self._response_formatter.format(response, mode, state, context=text)
 
-                self.emit_response(response)
-
-                return response
+                return Result.ok(response)
 
 
         # Optional preprocessing (safe passthrough if not set)
@@ -2067,6 +1993,7 @@ class Orchestrator:
 
 
         # Inject memory context (non-blocking, augments input internally)
+        # Memory already retrieved at line 1581 (before cancel/confirm checks)
 
 
 
@@ -2203,57 +2130,33 @@ class Orchestrator:
 
         except Exception as e:
 
-            logger.error_data("process_input exception", {"error": str(e)})
+            logger.error_data("process_input exception", {"error": str(e), "type": type(e).__name__})
+
+            error_info = ErrorBuilder.from_exception(
+                e,
+                category=ErrorCategory.INFRASTRUCTURE,
+                context={"phase": "process_input"}
+            )
 
             response = self._response_builder.build(
-
-                final_text="Error processing request.",
-
-                success=False
-
+                final_text=error_info.user_message,
+                success=False,
+                error=error_info.to_dict()
             )
 
         finally:
 
 
 
-            # Safety fallback: force to IDLE if not already there
+            # REMOVED: State forcing in finally block violated "state = reality" invariant
+            # State must be set correctly in execution paths, not overridden here
+            # If state is not IDLE/ERROR after execution, that's a real condition that should be visible
+            pass
+
+        return Result.ok(response)
 
 
-
-            if self._state_machine.state not in (AgentState.IDLE, AgentState.ERROR):
-
-
-
-                logger.warning_data(
-
-
-
-                    "State cleanup in finally block",
-
-
-
-                    {"current_state": self._state_machine.state.value},
-
-
-
-                )
-
-
-
-                self._state_machine.force_transition(AgentState.IDLE, "finally_cleanup")
-
-        # Fallback: ensure we always return a valid response
-        if response is None:
-            response = self._response_builder.build(
-                final_text="Error: No response generated.",
-                success=False
-            )
-
-        return response
-
-
-    def _execute_agent_loop(self, user_input: str, source: str = "user", memory_context_obj: Any = None, screen_context: Optional[dict] = None, intent: Any = None) -> AgentResponse:
+    def _execute_agent_loop(self, user_input: str, source: str = "user", memory_context_obj: Any = None, screen_context: Optional[dict] = None, intent: Any = None) -> Result[AgentResponse]:
 
 
 
@@ -2810,18 +2713,16 @@ class Orchestrator:
 
 
 
+                    # PHASE 3 FIX: State transition BEFORE response formatting (atomic execution)
+                    self._state_machine.transition(AgentState.WAITING_CONFIRM, "awaiting_confirmation")
+
+
+
                     response = self._response_formatter.format(response, mode, state, context=user_input)
 
 
 
-                    self.emit_response(response)
-
-
-
-                    self._state_machine.transition(AgentState.IDLE, "awaiting_confirmation")
-
-
-                    return response  # Return confirmation response
+                    return Result.ok(response)  # Return confirmation response
 
 
 
@@ -3595,7 +3496,7 @@ class Orchestrator:
 
 
 
-                            success=getattr(tool_result, "success", True),
+                            success=getattr(tool_result, "success", False),  # Default to False - strict validation
 
 
 
@@ -3615,7 +3516,7 @@ class Orchestrator:
 
 
 
-                        tool_success = tool_result.success if hasattr(tool_result, "success") else True
+                        tool_success = tool_result.success if hasattr(tool_result, "success") else False  # Default to False - strict validation
 
 
 
@@ -4515,7 +4416,7 @@ class Orchestrator:
 
 
 
-                            success=getattr(tool_result, "success", True),
+                            success=getattr(tool_result, "success", False),  # Default to False - strict validation
 
 
 
@@ -4535,7 +4436,7 @@ class Orchestrator:
 
 
 
-                        tool_success = tool_result.success if hasattr(tool_result, "success") else True
+                        tool_success = tool_result.success if hasattr(tool_result, "success") else False  # Default to False - strict validation
 
 
 
@@ -4561,6 +4462,11 @@ class Orchestrator:
 
 
                             final_text = self._format_tool_result(tool_result)
+
+
+
+
+
 
 
 
@@ -5210,17 +5116,7 @@ class Orchestrator:
 
 
 
-            # PHASE 5: Emit structured response
-
-
-
-
-            self.emit_response(response)
-
-
-
-
-
+            # PHASE 5: Response ready for delivery (returned to caller)
 
 
 
@@ -5651,7 +5547,7 @@ class Orchestrator:
 
             self._state_machine.transition(AgentState.IDLE, "agent_loop_complete")
 
-            return response
+            return Result.ok(response)
 
 
 
@@ -5660,55 +5556,28 @@ class Orchestrator:
 
         except Exception as e:
 
+            logger.error_data("Agent loop failed", {"error": str(e), "type": type(e).__name__})
 
-
-            logger.error_data("Agent loop failed", {"error": str(e)})
-
-
-
-            import traceback
-            error_msg = f"Error: {str(e)}"
-            error_response = self._response_builder.build(
-
-
-
-                final_text=f"Error: {str(e)}",
-
-
-
-                success=False,
-
-
-
+            error_info = ErrorBuilder.from_exception(
+                e,
+                category=ErrorCategory.INFRASTRUCTURE,
+                context={"phase": "agent_loop", "input": user_input[:100]}
             )
 
+            error_response = self._response_builder.build(
+                final_text=error_info.user_message,
+                success=False,
+                error=error_info.to_dict()
+            )
 
+            # PHASE 3 FIX: State transition BEFORE error response formatting (atomic execution)
+            self._state_machine.transition(AgentState.ERROR, "agent_loop_error")
 
             # Format error response based on mode (presentation layer)
-
-
-
             user_bias = memory_context_obj.user_bias if memory_context_obj else None
-
-
-
             mode = self._response_formatter.select_mode(source, user_bias)
-
-
-
             state = self._ux_realness.create_state(phase="finalizing", context=user_input)
-
-
-
             error_response = self._response_formatter.format(error_response, mode, state, context=user_input)
-
-
-
-            self.emit_response(error_response)
-
-
-
-            self._state_machine.transition(AgentState.ERROR, "agent_loop_error")
 
             return error_response
 
@@ -6103,12 +5972,6 @@ class Orchestrator:
 
 
 
-
-
-
-
-
-
         Returns tool result dict.
 
 
@@ -6219,26 +6082,15 @@ class Orchestrator:
 
 
 
-            logger.error_data("Tool execution error", {"error": str(e)})
-
-
-
-
+            logger.error_data("Tool execution error", {"error": str(e), "type": type(e).__name__})
+            error_info = ErrorBuilder.tool_execution_failure(
+                tool_name=tool_name,
+                reason=str(e),
+                context={"exception_type": type(e).__name__}
+            )
             return {
-
-
-
-
                 "success": False,
-
-
-
-
-                "error": str(e),
-
-
-
-
+                "error": error_info.to_dict(),
             }
 
 
@@ -6289,107 +6141,12 @@ class Orchestrator:
 
 
 
-            return f"Failed: {result.get('error', 'Unknown error')}"
-
-
-
-
-
-
-
-
-
-    def emit_response(self, response: str | AgentResponse, source: str = "agent") -> None:
-
-
-
-
-        """Emit a response to the user."""
-
-
-
-
-        # Handle both string and AgentResponse for backward compatibility
-
-
-
-
-        if isinstance(response, AgentResponse):
-
-
-
-
-            text = response.user_text
-
-
-
-
-            logger.info_data(
-
-
-
-
-                "Emitting structured response",
-
-
-
-
-                {"source": source, "text": text[:100], "success": response.success},
-
-
-
-
-            )
-
-
-
-
-        else:
-
-
-
-
-            text = response
-
-
-
-
-            logger.info_data(
-
-
-
-
-                "Emitting response",
-
-
-
-
-                {"source": source, "text": text[:100]},
-
-
-
-
-            )
-
-
-
-
-
-
-
-
-
-        # Call response callback with user text
-
-
-
-
-        if self._on_response_callback:
-
-
-
-
-            self._on_response_callback(text)
+            error = result.get("error")
+            # Handle structured error dict
+            if isinstance(error, dict) and "user_message" in error:
+                return error["user_message"]
+            # Handle legacy string error
+            return f"Failed: {error if error else 'Unknown error'}"
 
 
 
@@ -6499,26 +6256,6 @@ class Orchestrator:
 
 
 
-    def set_response_callback(self, callback: Callable[[str], None]) -> None:
-
-
-
-
-        """Set callback for agent responses."""
-
-
-
-
-        self._on_response_callback = callback
-
-
-
-
-
-
-
-
-
     def set_confirm_callback(self, callback: Callable[[Any], bool]) -> None:
 
 
@@ -6595,12 +6332,6 @@ class Orchestrator:
 
 
         Trigger emergency stop via control layer.
-
-
-
-
-
-
 
 
 
@@ -6693,130 +6424,51 @@ class Orchestrator:
 
 
 
+    def _execute_pending_action(self, memory_context_obj: Any = None) -> Result[AgentResponse]:
+        """Execute pending action after user confirmation.
 
-    def _execute_pending_action(self) -> None:
-
-
-
-
-        """Execute pending action after user confirmation."""
-
-
-
+        Args:
+            memory_context_obj: Memory context object for consistent context handling
+        """
 
         if self._pending_action is None:
-
-
-
-
             logger.warning("No pending action to execute")
-
-
-
-
-            return
-
-
-
-
-
-
-
-
+            return Result.ok(
+                self._response_builder.build(
+                    final_text="Ошибка: нет ожидающего действия для выполнения.",
+                    success=False,
+                    stability_score=0.0,
+                    stability_flags=["no_pending_action"]
+                )
+            )
 
         # Re-check emergency stop before execution (safety)
-
-
-
-
         if self._is_emergency_triggered():
-
-
-
-
             logger.warning("Emergency stop active, cancelling pending action")
-
-
-
-
             self._pending_action = None
-
-
-
-
             self._pending_control_result = None
-
-
-
-
-            return
-
-
-
-        
-
-
-
-        
+            return Result.ok(
+                self._response_builder.build(
+                    final_text="Действие отменено: аварийная остановка.",
+                    success=False,
+                    stability_score=0.0,
+                    stability_flags=["emergency_stop"]
+                )
+            )
 
         logger.info("Executing confirmed pending action")
 
-
-
-
-
-
-
-
-
         # Clear pending action (we're executing it now)
-
-
-
-
         action = self._pending_action
-
-
-
-
         source = action.source.value if action.source else "user"
-
-
-
-
         self._pending_action = None
-
-
-
-
         self._pending_control_result = None
 
-
-
-
-
-
-
-
-
         # Execute the action through the normal pipeline
-
-
-
-
         # Note: Control layer bypassed since user already confirmed,
-
-
-
-
         # but emergency stop check is still performed above
-
-
-
-
-        self._execute_agent_loop(action.text or "", source)
-
-
+        # Pass memory_context_obj to ensure consistent context handling
+        return self._execute_agent_loop(action.text or "", source, memory_context_obj=memory_context_obj)
 
 
 
@@ -6824,7 +6476,7 @@ class Orchestrator:
 
 
 
-    def _persist_memory_events(self, memory_events: list[dict]) -> bool:
+    def _persist_memory_events(self, memory_events: tuple[dict, ...]) -> bool:
 
 
 
@@ -6835,12 +6487,6 @@ class Orchestrator:
 
 
         Persist memory events to memory manager (non-blocking).
-
-
-
-
-
-
 
 
 
@@ -7144,12 +6790,6 @@ class Orchestrator:
 
 
 
-
-
-
-
-
-
         Returns:
 
 
@@ -7405,11 +7045,6 @@ class Orchestrator:
 
 
 
-        on_response: Callable[[str], None] | None = None,
-
-
-
-
         on_confirm: Callable[[Any], bool] | None = None,
 
 
@@ -7431,11 +7066,6 @@ class Orchestrator:
 
 
         self._on_input_callback = on_input
-
-
-
-
-        self._on_response_callback = on_response
 
 
 

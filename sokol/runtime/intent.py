@@ -139,7 +139,8 @@ class RuleBasedIntentHandler:
 
                 return Intent(action=action, tool=tool, args=args)
 
-        return None
+        # PHASE 2 FIX: Return default Intent instead of None (no None runtime)
+        return Intent(action="no_action", tool=None, args={})
 
     def execute_intent(self, intent: Intent) -> tuple[bool, str]:
         """

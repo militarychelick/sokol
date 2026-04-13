@@ -160,17 +160,27 @@ class TaskManager:
             Task or None if not found
         """
         if not self._conn:
-            return None
-        
+            from sokol.runtime.errors import ErrorBuilder, ErrorCategory
+            raise ErrorBuilder.from_exception(
+                ValueError("Database connection not initialized"),
+                category=ErrorCategory.INFRASTRUCTURE,
+                context={"task_id": task_id}
+            )
+
         try:
             cursor = self._conn.execute(
                 "SELECT task_id, goal, status, steps, current_step, risk_level, created_at, updated_at, metadata FROM tasks WHERE task_id = ?",
                 (task_id,)
             )
             row = cursor.fetchone()
-            
+
             if not row:
-                return None
+                from sokol.runtime.errors import ErrorBuilder, ErrorCategory
+                raise ErrorBuilder.from_exception(
+                    ValueError(f"Task not found: {task_id}"),
+                    category=ErrorCategory.VALIDATION,
+                    context={"task_id": task_id}
+                )
             
             return Task(
                 task_id=row[0],
@@ -290,7 +300,12 @@ class TaskManager:
         """
         task = self._find_task(task_id)
         if not task:
-            return None
+            from sokol.runtime.errors import ErrorBuilder, ErrorCategory
+            raise ErrorBuilder.from_exception(
+                ValueError(f"Task not found: {task_id}"),
+                category=ErrorCategory.VALIDATION,
+                context={"task_id": task_id}
+            )
 
         task.status = status
         task.updated_at = datetime.now().isoformat()
@@ -401,7 +416,12 @@ class TaskManager:
         """
         task = self._find_task(task_id)
         if not task:
-            return None
+            from sokol.runtime.errors import ErrorBuilder, ErrorCategory
+            raise ErrorBuilder.from_exception(
+                ValueError(f"Task not found: {task_id}"),
+                category=ErrorCategory.VALIDATION,
+                context={"task_id": task_id}
+            )
 
         task.status = TaskStatus.IN_PROGRESS
         task.updated_at = datetime.now().isoformat()
@@ -430,7 +450,12 @@ class TaskManager:
         """
         task = self._find_task(task_id)
         if not task:
-            return None
+            from sokol.runtime.errors import ErrorBuilder, ErrorCategory
+            raise ErrorBuilder.from_exception(
+                ValueError(f"Task not found: {task_id}"),
+                category=ErrorCategory.VALIDATION,
+                context={"task_id": task_id}
+            )
 
         return {
             "task_id": task.task_id,

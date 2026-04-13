@@ -230,7 +230,8 @@ class HardeningEngine:
                 timestamp=self._get_timestamp(),
             )
 
-        return None
+        # PHASE 2 FIX: Return empty list instead of None (no None runtime)
+        return []
 
     def validate_stability_score(self, stability_score: float) -> Optional[HardeningViolation]:
         """
@@ -258,7 +259,8 @@ class HardeningEngine:
                 timestamp=self._get_timestamp(),
             )
 
-        return None
+        # PHASE 2 FIX: Return empty list instead of None (no None runtime)
+        return []
 
     def detect_anomalies(self, tool_results: List[Any] | None = None) -> List[HardeningViolation]:
         """

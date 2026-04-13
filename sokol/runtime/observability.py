@@ -309,8 +309,24 @@ class TraceCollector:
         Returns:
             Completed ExecutionTrace or None
         """
+        # PHASE 2 FIX: Return default ExecutionTrace instead of None (no None runtime)
         if self._current_trace is None:
-            return None
+            from datetime import datetime
+            return ExecutionTrace(
+                trace_id="error_no_trace",
+                timestamp=datetime.now().isoformat(),
+                input_text="",
+                input_source="",
+                router_decision=None,
+                control_decision=None,
+                tool_calls=[],
+                tool_results=[],
+                stability_report=None,
+                final_response=response[:500] if response else "",
+                success=success,
+                error=error,
+                execution_time_seconds=0.0,
+            )
 
         try:
             import time
@@ -328,7 +344,23 @@ class TraceCollector:
             # Trace errors should not break system
             logger.debug_data("Failed to finalize trace", {"error": str(e)})
             self._current_trace = None
-            return None
+            # PHASE 2 FIX: Return default ExecutionTrace instead of None (no None runtime)
+            from datetime import datetime
+            return ExecutionTrace(
+                trace_id="error_trace_exception",
+                timestamp=datetime.now().isoformat(),
+                input_text="",
+                input_source="",
+                router_decision=None,
+                control_decision=None,
+                tool_calls=[],
+                tool_results=[],
+                stability_report=None,
+                final_response=response[:500] if response else "",
+                success=False,
+                error=str(e),
+                execution_time_seconds=0.0,
+            )
 
     def log_trace(self, trace: ExecutionTrace) -> None:
         """

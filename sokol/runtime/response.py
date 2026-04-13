@@ -15,17 +15,18 @@ class ResponseMode(str, Enum):
     DETAILED = "detailed"  # Extended explanations (plan + results + reasoning hints)
 
 
-@dataclass
+@dataclass(frozen=True)
 class AgentResponse:
-    """Structured response from agent execution."""
+    """Structured response from agent execution (immutable after creation)."""
 
     user_text: str
-    system_log: list[dict] = field(default_factory=list)
-    memory_events: list[dict] = field(default_factory=list)
-    tool_results: list[dict] = field(default_factory=list)
+    system_log: tuple[dict, ...] = field(default_factory=tuple)
+    memory_events: tuple[dict, ...] = field(default_factory=tuple)
+    tool_results: tuple[dict, ...] = field(default_factory=tuple)
     success: bool = True
     stability_score: float = 1.0
-    stability_flags: list[str] = field(default_factory=list)
+    stability_flags: tuple[str, ...] = field(default_factory=tuple)
+    error: Optional[dict] = None  # Structured error info from errors.ErrorInfo
 
 
 class ResponseBuilder:
@@ -46,11 +47,12 @@ class ResponseBuilder:
     def build(
         self,
         final_text: str,
-        tool_results: list[Any] | None = None,
-        system_logs: list[dict] | None = None,
+        tool_results: list[Any] | tuple[Any, ...] | None = None,
+        system_logs: list[dict] | tuple[dict, ...] | None = None,
         success: bool = True,
         stability_score: float = 1.0,
-        stability_flags: list[str] | None = None,
+        stability_flags: list[str] | tuple[str, ...] | None = None,
+        error: Optional[dict] = None,  # Structured error info from errors.ErrorInfo
     ) -> AgentResponse:
         """
         Build structured response from orchestrator results.
@@ -68,12 +70,13 @@ class ResponseBuilder:
         """
         return AgentResponse(
             user_text=final_text,
-            system_log=system_logs or [],
-            memory_events=[],  # Memory events handled separately
-            tool_results=[self._format_tool_result(r) for r in (tool_results or [])],
+            system_log=tuple(system_logs or []),  # Copy to tuple for immutability
+            memory_events=tuple(),  # Memory events handled separately
+            tool_results=tuple(self._format_tool_result(r) for r in (tool_results or [])),  # Create tuple
             success=success,
             stability_score=stability_score,
-            stability_flags=stability_flags or [],
+            stability_flags=tuple(stability_flags or []),  # Copy to tuple for immutability
+            error=error,  # Structured error info
         )
 
     def _format_tool_result(self, result: Any) -> dict:
@@ -148,20 +151,21 @@ class ResponseFormatter:
         # Return new response with formatted text (keep other fields unchanged)
         return AgentResponse(
             user_text=formatted_text,
-            system_log=response.system_log,
-            memory_events=response.memory_events,
-            tool_results=response.tool_results,
+            system_log=response.system_log,  # Tuples are immutable, safe to share
+            memory_events=response.memory_events,  # Tuples are immutable, safe to share
+            tool_results=response.tool_results,  # Tuples are immutable, safe to share
             success=response.success,
             stability_score=response.stability_score,
-            stability_flags=response.stability_flags,
+            stability_flags=response.stability_flags,  # Tuples are immutable, safe to share
+            error=response.error,  # Preserve error info
         )
 
     def _format_by_mode(
         self,
         text: str,
         mode: ResponseMode,
-        tool_results: list[dict] | None,
-        stability_flags: list[str] | None,
+        tool_results: tuple[dict, ...] | None,
+        stability_flags: tuple[str, ...] | None,
     ) -> str:
         """
         Format text based on response mode.
@@ -218,8 +222,8 @@ class ResponseFormatter:
     def _format_detailed(
         self,
         text: str,
-        tool_results: list[dict] | None,
-        stability_flags: list[str] | None,
+        tool_results: tuple[dict, ...] | None,
+        stability_flags: tuple[str, ...] | None,
     ) -> str:
         """
         Format text for detailed mode (plan + results + reasoning hints).
@@ -239,7 +243,8 @@ class ResponseFormatter:
             results_summary = "\n\nРезультаты выполнения:"
             for i, result in enumerate(tool_results, 1):
                 tool_name = result.get("tool", f"Tool {i}")
-                success = result.get("success", True)
+                # PHASE 6 FIX: Default to False (no silent success)
+                success = result.get("success", False)
                 status = "✓" if success else "✗"
                 results_summary += f"\n{status} {tool_name}"
             detailed_parts.append(results_summary)

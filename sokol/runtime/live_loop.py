@@ -9,6 +9,7 @@ from enum import Enum
 
 from sokol.runtime.unified_input import UnifiedInputContext
 from sokol.runtime.orchestrator import Orchestrator
+from sokol.runtime.result import Result
 from sokol.runtime.backpressure import BackpressureLayer
 from sokol.runtime.priority import PriorityPolicy, EventPriority
 from sokol.runtime.metrics import MetricsCollector
@@ -437,18 +438,24 @@ class LiveLoopController:
             self._update_state(AgentState.THINKING)
             
             # Execute directly through orchestrator
-            response = self._orchestrator.process_input(
+            result = self._orchestrator.process_input(
                 text=text,
                 source=source,
                 screen_context=None
             )
-            
-            # Update state
+
+            # PHASE 8: Unwrap Result and handle success/error
+            if result.success:
+                response = result.value
+                # Send response (callback must be set by contract)
+                self._on_response(response.user_text)
+            else:
+                # Handle error case
+                error_text = result.error.user_message if result.error else "Unknown error"
+                self._on_response(error_text)
+
+            # Update state AFTER response delivery (atomic commit)
             self._update_state(AgentState.IDLE)
-            
-            # Send response
-            if self._on_response:
-                self._on_response(response.formatted_message)
             
             # Hard Reliability Verification: Observe emergency latency
             latency_ms = (time.time() - start_time) * 1000
@@ -841,12 +848,20 @@ class LiveLoopController:
                     "element_count": len(context.screen_snapshot.elements),
                 }
 
-            response = self._orchestrator.process_input(
+            result = self._orchestrator.process_input(
                 text=context.get_primary_text(),
                 source=context.source,
                 screen_context=screen_context_dict,
             )
-            
+
+            # PHASE 8: Unwrap Result and handle success/error
+            if result.success:
+                response = result.value
+            else:
+                # Handle error case - create error response
+                error_text = result.error.user_message if result.error else "Unknown error"
+                response = type('obj', (object,), {'user_text': error_text, 'success': False})
+
             # FIX #3: Verify emergency non-drop for emergency events - enforcement mode
             if event.event_type == LoopEventType.TEXT_INPUT:
                 text = event.data.get("text", "") if event.data else ""
@@ -863,11 +878,11 @@ class LiveLoopController:
                         system_state=self._system_state
                     )
             
-            # Update state to idle
+            # Send response to UI (single point of delivery - guaranteed)
+            self._on_response(response.user_text)
+
+            # Update state to idle AFTER response delivery (atomic commit)
             self._update_state(AgentState.IDLE)
-            
-            # NOTE: Response callback is already called by orchestrator.emit_response()
-            # No need to call it again here to avoid duplication
             
             # FIX #4: Verify observer non-interference (observer should not affect execution) - enforcement mode
             self._verify_enforced(
@@ -889,16 +904,15 @@ class LiveLoopController:
                 "events_failed_total",
                 tags={"type": event.event_type.value, "error": type(e).__name__}
             )
-            import traceback
-            print(f"=== ORCHESTRATOR ERROR ===")
-            print(f"Error: {str(e)}")
-            print(f"Traceback:\n{traceback.format_exc()}")
-            print(f"=== END ERROR ===")
-            logger.error_data("Orchestrator error", {"error": str(e), "traceback": traceback.format_exc()})
+            # REMOVED: Raw exception leakage to stdout (print statements)
+            # Stack traces should only go to logs, not user-facing output
+            logger.error_data("Orchestrator error", {"error": str(e), "traceback": str(e.__traceback__)})
             self._update_state(AgentState.ERROR)
         finally:
-            # Always reset to IDLE to prevent stale state (ERROR or any other)
-            self._update_state(AgentState.IDLE)
+            # REMOVED: State forcing to IDLE violated "state = reality" invariant
+            # If state is ERROR, it should stay ERROR to reflect the real condition
+            # State must be set correctly in execution paths, not overridden here
+            pass
             # V2: Track event latency
             if event_id in self._event_start_times:
                 latency_ms = (time.time() - self._event_start_times[event_id]) * 1000

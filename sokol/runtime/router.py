@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from enum import Enum
 
 from sokol.observability.logging import get_logger
+from sokol.runtime.errors import ErrorBuilder, ErrorCategory
 from sokol.runtime.intent import RuleBasedIntentHandler
+from sokol.runtime.result import Result
 from sokol.integrations.llm import LLMManager, LLMMessage
 from sokol.core.config import get_config
 
@@ -79,12 +81,12 @@ class ConditionEvaluator:
 
         if condition_type == "success":
             # Condition: previous tool succeeded
-            success = tool_result.success if hasattr(tool_result, "success") else True
+            success = tool_result.success if hasattr(tool_result, "success") else False  # Default to False - strict validation
             return success, f"success_check: {success}"
 
         elif condition_type == "failure":
             # Condition: previous tool failed
-            success = tool_result.success if hasattr(tool_result, "success") else True
+            success = tool_result.success if hasattr(tool_result, "success") else False  # Default to False - strict validation
             return not success, f"failure_check: {not success}"
 
         elif condition_type == "data_present":
@@ -268,11 +270,20 @@ class IntentRouter:
                 )
                 retry_count += 1
 
-        # All retries exhausted
+        # All retries exhausted - return structured error action instead of None
         logger.error_data("LLM routing failed after retries", {"retries": max_retries})
-        return None
+        error_info = ErrorBuilder.routing_failure(
+            reason="LLM routing failed after retries",
+            context={"retries": max_retries}
+        )
+        return ProposedAction(
+            source=DecisionSource.RULE_BASED,
+            action_type="final_answer",
+            text=error_info.user_message,
+            confidence=0.0,
+        )
 
-    def _validate_llm_response(self, content: str) -> dict[str, Any] | None:
+    def _validate_llm_response(self, content: str) -> Result[dict]:
         """
         Validate LLM response structure.
 
@@ -297,32 +308,83 @@ class IntentRouter:
             # Validate it's a dict
             if not isinstance(parsed, dict):
                 logger.warning_data("LLM response is not a dict", {"type": type(parsed).__name__})
-                return None
+                error_info = ErrorBuilder.routing_failure(
+                    reason="LLM response is not a dict",
+                    context={"type": str(type(parsed).__name__)}
+                )
+                return Result.ok({
+                    "type": "final_answer",
+                    "text": error_info.user_message,
+                    "error": error_info.to_dict(),
+                })
 
             # Validate required type field
             if "type" not in parsed:
                 logger.warning("LLM response missing type field")
-                return None
+                error_info = ErrorBuilder.routing_failure(
+                    reason="LLM response missing type field",
+                    context={}
+                )
+                return Result.ok({
+                    "type": "final_answer",
+                    "text": error_info.user_message,
+                    "error": error_info.to_dict(),
+                })
 
             # Validate type field is a string
             if not isinstance(parsed["type"], str):
                 logger.warning_data("LLM type field is not a string", {"type": type(parsed["type"]).__name__})
-                return None
+                error_info = ErrorBuilder.routing_failure(
+                    reason="LLM type field is not a string",
+                    context={"type": str(type(parsed["type"]).__name__)}
+                )
+                return Result.ok({
+                    "type": "final_answer",
+                    "text": error_info.user_message,
+                    "error": error_info.to_dict(),
+                })
 
             # Validate type is one of the expected values
             valid_types = ["tool_call", "final_answer", "clarification"]
             if parsed["type"] not in valid_types:
                 logger.warning_data("LLM response has invalid type", {"type": parsed["type"], "valid": valid_types})
-                return None
+                error_info = ErrorBuilder.routing_failure(
+                    reason="LLM response has invalid type",
+                    context={"type": parsed["type"], "valid": valid_types}
+                )
+                return Result.ok({
+                    "type": "final_answer",
+                    "text": error_info.user_message,
+                    "error": error_info.to_dict(),
+                })
 
-            return parsed
+            return Result.ok(parsed)
 
         except json.JSONDecodeError as e:
             logger.warning_data("LLM response not valid JSON", {"error": str(e), "content_preview": content[:200]})
-            return None
+            # Return structured error action instead of None
+            error_info = ErrorBuilder.routing_failure(
+                reason="LLM response not valid JSON",
+                context={"error": str(e)}
+            )
+            return Result.ok({
+                "type": "final_answer",
+                "text": error_info.user_message,
+                "error": error_info.to_dict(),
+            })
         except Exception as e:
             logger.error_data("LLM response validation error", {"error": str(e)})
-            return None
+            # Return structured error action instead of None
+            error_info = ErrorBuilder.from_exception(
+                e,
+                category=ErrorCategory.ROUTING,
+                context={"phase": "llm_validation"}
+            )
+            return Result.ok({
+                "type": "final_answer",
+                "text": error_info.user_message,
+                "error": error_info.to_dict(),
+            })
 
     def _try_rule_based(self, user_input: str) -> ProposedAction | None:
         """Try to get action from rule-based handler."""
@@ -351,8 +413,18 @@ class IntentRouter:
 
         except Exception as e:
             logger.error_data("Rule-based routing failed", {"error": str(e)})
-
-        return None
+            # Return structured error action instead of None
+            error_info = ErrorBuilder.from_exception(
+                e,
+                category=ErrorCategory.ROUTING,
+                context={"phase": "rule_based_routing"}
+            )
+            return ProposedAction(
+                source=DecisionSource.RULE_BASED,
+                action_type="final_answer",
+                text=error_info.user_message,
+                confidence=0.0,
+            )
 
     def _build_system_prompt(self) -> str:
         """Build system prompt for LLM routing."""

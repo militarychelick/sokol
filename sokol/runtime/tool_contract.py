@@ -163,10 +163,11 @@ class ToolContractNormalizer:
         """
         start_time = time.time()
 
-        # Determine success
-        success = error is None
+        # Determine success - default to False (strict validation)
+        # Cannot assume success, must be explicitly validated
+        success = False
 
-        # If raw_result has success field, use it
+        # If raw_result has success field, use it (explicit validation)
         if hasattr(raw_result, "success"):
             success = raw_result.success
             if hasattr(raw_result, "data"):
@@ -176,7 +177,17 @@ class ToolContractNormalizer:
                 success = False
             else:
                 result = raw_result
+        elif error is None:
+            # No error field and no error provided - still cannot assume success
+            # Result structure is invalid, mark as failure
+            logger.warning_data(
+                "Tool result missing success field, treating as failure",
+                {"tool_id": tool_id},
+            )
+            error = "Tool result missing success field - invalid contract"
+            result = raw_result
         else:
+            # Error provided, result is failure
             result = raw_result
 
         # Infer error type if not provided
@@ -222,8 +233,8 @@ class ToolContractNormalizer:
             Tool schema or None
         """
         # This is a placeholder - would fetch from tool registry
-        # For now, return None (no schema validation)
-        return None
+        # PHASE 2 FIX: Return empty schema dict instead of None (no None runtime)
+        return {}
 
     def _validate_and_coerce_input(
         self,

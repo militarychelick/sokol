@@ -69,12 +69,12 @@ class FailureRecovery:
         result = execute_func(tool_name, params)
         recovery_info["attempts"].append({
             "tool": tool_name,
-            "success": getattr(result, "success", True),
+            "success": getattr(result, "success", False),  # Default to False - cannot assume success
             "error": getattr(result, "error", None),
         })
 
         # If success, return immediately
-        if getattr(result, "success", True):
+        if getattr(result, "success", False):
             return result, recovery_info
 
         # Retry mechanism (max 1 retry)
@@ -88,12 +88,12 @@ class FailureRecovery:
             result = execute_func(tool_name, params)
             recovery_info["attempts"].append({
                 "tool": tool_name,
-                "success": getattr(result, "success", True),
+                "success": getattr(result, "success", False),  # Default to False - cannot assume success
                 "error": getattr(result, "error", None),
             })
 
             # If retry succeeded, return
-            if getattr(result, "success", True):
+            if getattr(result, "success", False):
                 return result, recovery_info
 
         # Fallback mechanism
@@ -141,7 +141,7 @@ class FailureRecovery:
                     recovery_info["final_tool"] = best_fallback
                     recovery_info["attempts"].append({
                         "tool": best_fallback,
-                        "success": getattr(result, "success", True),
+                        "success": getattr(result, "success", False),  # Default to False - cannot assume success
                         "error": getattr(result, "error", None),
                     })
 
@@ -179,8 +179,8 @@ class FailureRecovery:
         if recovery_info["fallback_used"]:
             penalty += 0.2
 
-        # Penalty for failed attempts
-        failed_attempts = sum(1 for attempt in recovery_info["attempts"] if not attempt.get("success", True))
+        # Penalty for failed attempts - default to False for success (strict)
+        failed_attempts = sum(1 for attempt in recovery_info["attempts"] if not attempt.get("success", False))
         penalty += failed_attempts * 0.05
 
         return min(penalty, 0.5)  # Cap at 0.5
