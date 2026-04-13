@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 from sokol.core.types import RiskLevel, ToolSchema as CoreToolSchema
 from sokol.core.types import ToolResult as CoreToolResult
+from sokol.runtime.result import Result
+from sokol.runtime.errors import ErrorBuilder, ErrorCategory
 from sokol.observability.logging import get_logger
 
 logger = get_logger("sokol.tools.base")
@@ -92,41 +94,47 @@ class Tool(ABC, Generic[T]):
         return False
 
     @abstractmethod
-    def get_schema(self) -> dict[str, Any]:
+    def get_schema(self) -> Result[dict]:
         """Get JSON Schema for tool parameters."""
         pass
 
     @abstractmethod
-    def execute(self, **params: Any) -> ToolResult[T]:
+    def execute(self, **params: Any) -> Result[ToolResult[T]]:
         """Execute the tool with given parameters."""
         pass
 
-    def undo(self, undo_info: dict[str, Any] | None = None) -> ToolResult[bool]:
+    def undo(self, undo_info: dict[str, Any] | None = None) -> Result[ToolResult[bool]]:
         """
         Undo the last action.
 
         Returns success=True if undo was successful.
         """
         if not self.undo_support:
-            return ToolResult(
-                success=False,
-                error="Tool does not support undo",
-                undo_available=False,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error="Tool does not support undo",
+                    undo_available=False,
+                )
             )
 
         undo_info = undo_info or self._undo_info
         if not undo_info:
-            return ToolResult(
-                success=False,
-                error="No undo information available",
-                undo_available=False,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error="No undo information available",
+                    undo_available=False,
+                )
             )
 
         # Subclasses should override this
-        return ToolResult(
-            success=False,
-            error="Undo not implemented",
-            undo_available=False,
+        return Result.ok(
+            ToolResult(
+                success=False,
+                error="Undo not implemented",
+                undo_available=False,
+            )
         )
 
     def validate_params(self, params: dict[str, Any]) -> tuple[bool, str | None]:
@@ -180,7 +188,7 @@ class Tool(ABC, Generic[T]):
             examples=self.examples,
         )
 
-    def safe_execute(self, **params: Any) -> ToolResult[T]:
+    def safe_execute(self, **params: Any) -> Result[ToolResult[T]]:
         """
         Execute with validation, timing, and timeout guard.
 
@@ -204,11 +212,13 @@ class Tool(ABC, Generic[T]):
                 "Tool execution aborted - emergency stop",
                 {"tool": tool_name},
             )
-            return ToolResult(
-                success=False,
-                error="Emergency stop triggered before execution",
-                risk_level=self.risk_level,
-                execution_time=time.time() - start_time,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error="Emergency stop triggered before execution",
+                    risk_level=self.risk_level,
+                    execution_time=time.time() - start_time,
+                )
             )
 
         # Validate parameters
@@ -218,15 +228,17 @@ class Tool(ABC, Generic[T]):
                 "Tool execution failed - validation error",
                 {"tool": tool_name, "error": error},
             )
-            return ToolResult(
-                success=False,
-                error=error,
-                risk_level=self.risk_level,
-                execution_time=time.time() - start_time,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=error,
+                    risk_level=self.risk_level,
+                    execution_time=time.time() - start_time,
+                )
             )
 
         # Execute with timeout guard
-        result: ToolResult[T] | None = None
+        result: Result[ToolResult[T]] | None = None
         exception: Exception | None = None
         timeout_occurred = False
 
@@ -248,11 +260,13 @@ class Tool(ABC, Generic[T]):
                 "Tool execution timeout",
                 {"tool": tool_name, "timeout": self._timeout},
             )
-            return ToolResult(
-                success=False,
-                error=f"Tool execution timeout after {self._timeout} seconds",
-                risk_level=self.risk_level,
-                execution_time=self._timeout,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=f"Tool execution timeout after {self._timeout} seconds",
+                    risk_level=self.risk_level,
+                    execution_time=self._timeout,
+                )
             )
 
         # Check for exception
@@ -262,25 +276,28 @@ class Tool(ABC, Generic[T]):
                 "Tool execution failed - exception",
                 {"tool": tool_name, "error": str(exception), "duration": duration},
             )
-            return ToolResult(
-                success=False,
-                error=str(exception),
-                execution_time=duration,
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=str(exception),
+                    execution_time=duration,
+                    risk_level=self.risk_level,
+                )
             )
 
         # Success
-        if result is not None:
+        if result is not None and result.success:
+            tool_result = result.value
             duration = time.time() - start_time
-            result.execution_time = duration
-            result.risk_level = self.risk_level
-            self._last_result = result
+            tool_result.execution_time = duration
+            tool_result.risk_level = self.risk_level
+            self._last_result = tool_result
 
             logger.info_data(
                 "Tool execution completed",
                 {
                     "tool": tool_name,
-                    "success": result.success,
+                    "success": tool_result.success,
                     "duration": duration,
                 },
             )
@@ -292,11 +309,13 @@ class Tool(ABC, Generic[T]):
             "Tool execution failed - no result",
             {"tool": tool_name},
         )
-        return ToolResult(
-            success=False,
-            error="Tool execution failed - no result returned",
-            execution_time=time.time() - start_time,
-            risk_level=self.risk_level,
+        return Result.ok(
+            ToolResult(
+                success=False,
+                error="Tool execution failed - no result returned",
+                execution_time=time.time() - start_time,
+                risk_level=self.risk_level,
+            )
         )
 
     def __repr__(self) -> str:

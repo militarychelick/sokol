@@ -5,6 +5,7 @@ from typing import Any
 from sokol.core.types import RiskLevel
 from sokol.observability.debug import dry_run_mode
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 from sokol.tools.base import Tool, ToolResult
 
 logger = get_logger("sokol.tools.builtin.window_manager")
@@ -50,8 +51,8 @@ class WindowManager(Tool[dict[str, Any]]):
             "close calculator",
         ]
 
-    def get_schema(self) -> dict[str, Any]:
-        return {
+    def get_schema(self) -> Result[dict]:
+        return Result.ok({
             "type": "object",
             "properties": {
                 "action": {
@@ -65,28 +66,32 @@ class WindowManager(Tool[dict[str, Any]]):
                 },
             },
             "required": ["action"],
-        }
+        })
 
     def execute(
         self,
         action: str,
         window_title: str | None = None,
-    ) -> ToolResult[dict[str, Any]]:
+    ) -> Result[ToolResult[dict[str, Any]]]:
         """Execute window action."""
         if not PYWINAUTO_AVAILABLE:
-            return ToolResult(
-                success=False,
-                error="pywinauto not available",
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error="pywinauto not available",
+                    risk_level=self.risk_level,
+                )
             )
 
         # Dry run mode
         if dry_run_mode():
             logger.info(f"DRY RUN: Would {action} window")
-            return ToolResult(
-                success=True,
-                data={"action": action, "window_title": window_title, "dry_run": True},
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=True,
+                    data={"action": action, "window_title": window_title, "dry_run": True},
+                    risk_level=self.risk_level,
+                )
             )
 
         try:
@@ -94,23 +99,27 @@ class WindowManager(Tool[dict[str, Any]]):
                 return self._list_windows()
 
             if not window_title:
-                return ToolResult(
-                    success=False,
-                    error=f"Window title required for action: {action}",
-                    risk_level=self.risk_level,
+                return Result.ok(
+                    ToolResult(
+                        success=False,
+                        error=f"Window title required for action: {action}",
+                        risk_level=self.risk_level,
+                    )
                 )
 
             return self._window_action(action, window_title)
 
         except Exception as e:
             logger.error_data("Window action failed", {"error": str(e)})
-            return ToolResult(
-                success=False,
-                error=str(e),
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=str(e),
+                    risk_level=self.risk_level,
+                )
             )
 
-    def _list_windows(self) -> ToolResult[dict[str, Any]]:
+    def _list_windows(self) -> Result[ToolResult[dict[str, Any]]]:
         """List all visible windows."""
         desktop = Desktop(backend="uia")
         windows = desktop.windows()
@@ -128,13 +137,15 @@ class WindowManager(Tool[dict[str, Any]]):
             except Exception:
                 pass
 
-        return ToolResult(
-            success=True,
-            data={"windows": window_list, "count": len(window_list)},
-            risk_level=RiskLevel.READ,
+        return Result.ok(
+            ToolResult(
+                success=True,
+                data={"windows": window_list, "count": len(window_list)},
+                risk_level=RiskLevel.READ,
+            )
         )
 
-    def _window_action(self, action: str, window_title: str) -> ToolResult[dict[str, Any]]:
+    def _window_action(self, action: str, window_title: str) -> Result[ToolResult[dict[str, Any]]]:
         """Perform action on a window."""
         desktop = Desktop(backend="uia")
 
@@ -142,16 +153,20 @@ class WindowManager(Tool[dict[str, Any]]):
         try:
             window = desktop.window(title_re=f".*{window_title}.*")
             if not window.exists():
-                return ToolResult(
-                    success=False,
-                    error=f"Window not found: {window_title}",
-                    risk_level=self.risk_level,
+                return Result.ok(
+                    ToolResult(
+                        success=False,
+                        error=f"Window not found: {window_title}",
+                        risk_level=self.risk_level,
+                    )
                 )
         except Exception as e:
-            return ToolResult(
-                success=False,
-                error=f"Error finding window: {str(e)}",
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=f"Failed to find window: {str(e)}",
+                    risk_level=self.risk_level,
+                )
             )
 
         # Store undo info
@@ -174,25 +189,27 @@ class WindowManager(Tool[dict[str, Any]]):
         elif action == "focus":
             window.set_focus()
 
-        return ToolResult(
-            success=True,
-            data={
-                "action": action,
-                "window_title": original_state["title"],
-            },
-            undo_available=True,
-            undo_info=self._undo_info,
-            risk_level=self.risk_level,
+        return Result.ok(
+            ToolResult(
+                success=True,
+                data={
+                    "action": action,
+                    "window_title": original_state["title"],
+                },
+                undo_available=True,
+                undo_info=self._undo_info,
+                risk_level=self.risk_level,
+            )
         )
 
-    def undo(self, undo_info: dict[str, Any] | None = None) -> ToolResult[bool]:
+    def undo(self, undo_info: dict[str, Any] | None = None) -> Result[ToolResult[bool]]:
         """Undo window action."""
         if not PYWINAUTO_AVAILABLE:
-            return ToolResult(success=False, error="pywinauto not available")
+            return Result.ok(ToolResult(success=False, error="pywinauto not available"))
 
         undo_info = undo_info or self._undo_info
         if not undo_info:
-            return ToolResult(success=False, error="No undo info")
+            return Result.ok(ToolResult(success=False, error="No undo info"))
 
         action = undo_info.get("action")
         original_state = undo_info.get("original_state", {})
@@ -202,7 +219,7 @@ class WindowManager(Tool[dict[str, Any]]):
             window = desktop.window(title=original_state.get("title", ""))
 
             if not window.exists():
-                return ToolResult(success=False, error="Window no longer exists")
+                return Result.ok(ToolResult(success=False, error="Window no longer exists"))
 
             # Restore original state
             if action == "minimize" and original_state.get("minimized") is False:
@@ -211,9 +228,9 @@ class WindowManager(Tool[dict[str, Any]]):
                 window.restore()
             elif action == "close":
                 # Can't undo close
-                return ToolResult(success=False, error="Cannot undo window close")
+                return Result.ok(ToolResult(success=False, error="Cannot undo window close"))
 
-            return ToolResult(success=True, data=True)
+            return Result.ok(ToolResult(success=True, data=True))
 
         except Exception as e:
-            return ToolResult(success=False, error=str(e))
+            return Result.ok(ToolResult(success=False, error=str(e)))
