@@ -5,6 +5,7 @@ from typing import Any
 from dataclasses import dataclass
 
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 from sokol.tools.registry import get_registry
 from sokol.core.types import RiskLevel
 
@@ -103,11 +104,11 @@ class RuleBasedIntentHandler:
             },
         ]
 
-    def parse_intent(self, text: str) -> Intent | None:
+    def parse_intent(self, text: str) -> Result[Intent]:
         """
         Parse intent from user text.
 
-        Returns None if no intent matches.
+        Returns default Intent if no intent matches.
         """
         text = text.strip().lower()
 
@@ -137,50 +138,54 @@ class RuleBasedIntentHandler:
                     {"action": action, "tool": tool, "args": str(args)},
                 )
 
-                return Intent(action=action, tool=tool, args=args)
+                return Result.ok(Intent(action=action, tool=tool, args=args))
 
         # PHASE 2 FIX: Return default Intent instead of None (no None runtime)
-        return Intent(action="no_action", tool=None, args={})
+        return Result.ok(Intent(action="no_action", tool=None, args={}))
 
-    def execute_intent(self, intent: Intent) -> tuple[bool, str]:
+    def execute_intent(self, intent: Intent) -> Result[tuple[bool, str]]:
         """
         Execute intent using tool registry.
 
         Returns (success, result_text).
         """
         if not intent.tool:
-            return False, f"Cannot execute intent: {intent.action}"
+            return Result.ok((False, f"Cannot execute intent: {intent.action}"))
 
         try:
             result = self._tool_registry.execute(intent.tool, intent.args or {})
 
-            if result.success:
-                return True, self._format_result(intent.action, result.data)
+            if result.is_ok():
+                tool_result = result.unwrap()
+                if tool_result.success:
+                    return Result.ok((True, self._format_result(intent.action, tool_result.data)))
+                else:
+                    return Result.ok((False, f"Execution failed: {tool_result.error}"))
             else:
-                return False, f"Execution failed: {result.error}"
+                return Result.ok((False, f"Execution failed: {result.error()}"))
 
         except Exception as e:
             logger.error_data("Intent execution failed", {"error": str(e)})
-            return False, f"Error: {str(e)}"
+            return Result.ok((False, f"Error: {str(e)}"))
 
-    def propose_action(self, intent: Intent) -> dict[str, Any]:
+    def propose_action(self, intent: Intent) -> Result[dict[str, Any]]:
         """
         Propose action from intent (does NOT execute).
 
         Returns action proposal dict for safety validation.
         """
         if not intent.tool:
-            return {
+            return Result.ok({
                 "action_type": "text_response",
                 "text": f"Cannot execute intent: {intent.action}",
-            }
+            })
 
-        return {
+        return Result.ok({
             "action_type": "tool_call",
             "tool": intent.tool,
             "args": intent.args or {},
             "source": "rule_based",
-        }
+        })
 
     def _format_result(self, action: str, data: Any) -> str:
         """Format tool result for user."""
