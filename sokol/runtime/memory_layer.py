@@ -5,6 +5,7 @@ from typing import Any, Optional, List
 from datetime import datetime
 
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 from sokol.runtime.user_model import UserModel
 
 logger = get_logger("sokol.runtime.memory_layer")
@@ -203,7 +204,7 @@ class MemoryLayer:
             },
         )
 
-    def retrieve_context(self, query: str, limit: int = 5) -> MemoryContext:
+    def retrieve_context(self, query: str, limit: int = 5) -> Result[MemoryContext]:
         """
         Retrieve relevant context for a query.
 
@@ -229,11 +230,13 @@ class MemoryLayer:
         # Extract tool memory for context
         tool_memory = self._tool_memory.copy()
 
-        return MemoryContext(
-            relevant_interactions=relevant_interactions,
-            summary=summary,
-            tool_memory=tool_memory,
-            user_bias=self._user_model.get_bias(),
+        return Result.ok(
+            MemoryContext(
+                relevant_interactions=relevant_interactions,
+                summary=summary,
+                tool_memory=tool_memory,
+                user_bias=self._user_model.get_bias(),
+            )
         )
 
     def update_user_model(self) -> None:
@@ -331,25 +334,25 @@ class MemoryLayer:
             "long_term_summary_length": len(self._long_term_summary),
         }
 
-    def get_active_task_context(self) -> dict[str, Any] | None:
+    def get_active_task_context(self) -> Result[dict[str, Any]]:
         """
         Get active task context from memory.
 
         Returns:
-            Active task context or None
+            Active task context or empty dict
         """
         # PHASE 2 FIX: Return empty dict instead of None (no None runtime)
         if not self._task_manager:
-            return {}
+            return Result.ok({})
 
         active_task = self._task_manager.get_active_task()
         if not active_task:
-            return {}
+            return Result.ok({})
 
         # Get task summary from memory
         task_memory = self._task_memory.get(active_task.task_id, {})
 
-        return {
+        return Result.ok({
             "task_id": active_task.task_id,
             "goal": active_task.goal,
             "status": active_task.status.value,
@@ -357,4 +360,4 @@ class MemoryLayer:
             "total_steps": len(active_task.steps),
             "risk_level": active_task.risk_level,
             "interactions": task_memory.get("interactions", 0),
-        }
+        })
