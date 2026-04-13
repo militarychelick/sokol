@@ -2199,7 +2199,7 @@ class Orchestrator:
 
         try:
 
-            response = self._execute_agent_loop(text, source, memory_context_obj, screen_context)
+            response = self._execute_agent_loop(text, source, memory_context_obj, screen_context, intent)
 
         except Exception as e:
 
@@ -2253,7 +2253,7 @@ class Orchestrator:
         return response
 
 
-    def _execute_agent_loop(self, user_input: str, source: str = "user", memory_context_obj: Any = None, screen_context: Optional[dict] = None) -> AgentResponse:
+    def _execute_agent_loop(self, user_input: str, source: str = "user", memory_context_obj: Any = None, screen_context: Optional[dict] = None, intent: Any = None) -> AgentResponse:
 
 
 
