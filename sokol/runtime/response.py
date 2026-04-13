@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 from enum import Enum
 
+from sokol.runtime.result import Result
 from sokol.runtime.ux_realness import UXRealness, ExecutionState
 
 
@@ -53,7 +54,7 @@ class ResponseBuilder:
         stability_score: float = 1.0,
         stability_flags: list[str] | tuple[str, ...] | None = None,
         error: Optional[dict] = None,  # Structured error info from errors.ErrorInfo
-    ) -> AgentResponse:
+    ) -> Result[AgentResponse]:
         """
         Build structured response from orchestrator results.
 
@@ -68,15 +69,17 @@ class ResponseBuilder:
         Returns:
             AgentResponse with structured output
         """
-        return AgentResponse(
-            user_text=final_text,
-            system_log=tuple(system_logs or []),  # Copy to tuple for immutability
-            memory_events=tuple(),  # Memory events handled separately
-            tool_results=tuple(self._format_tool_result(r) for r in (tool_results or [])),  # Create tuple
-            success=success,
-            stability_score=stability_score,
-            stability_flags=tuple(stability_flags or []),  # Copy to tuple for immutability
-            error=error,  # Structured error info
+        return Result.ok(
+            AgentResponse(
+                user_text=final_text,
+                system_log=tuple(system_logs or []),  # Copy to tuple for immutability
+                memory_events=tuple(),  # Memory events handled separately
+                tool_results=tuple(self._format_tool_result(r) for r in (tool_results or [])),  # Create tuple
+                success=success,
+                stability_score=stability_score,
+                stability_flags=tuple(stability_flags or []),  # Copy to tuple for immutability
+                error=error,  # Structured error info
+            )
         )
 
     def _format_tool_result(self, result: Any) -> dict:
@@ -113,7 +116,7 @@ class ResponseFormatter:
         mode: ResponseMode = ResponseMode.STANDARD,
         state: Optional[ExecutionState] = None,
         context: str = "",
-    ) -> AgentResponse:
+    ) -> Result[AgentResponse]:
         """
         Format response based on mode.
 
@@ -149,15 +152,17 @@ class ResponseFormatter:
             )
 
         # Return new response with formatted text (keep other fields unchanged)
-        return AgentResponse(
-            user_text=formatted_text,
-            system_log=response.system_log,  # Tuples are immutable, safe to share
-            memory_events=response.memory_events,  # Tuples are immutable, safe to share
-            tool_results=response.tool_results,  # Tuples are immutable, safe to share
-            success=response.success,
-            stability_score=response.stability_score,
-            stability_flags=response.stability_flags,  # Tuples are immutable, safe to share
-            error=response.error,  # Preserve error info
+        return Result.ok(
+            AgentResponse(
+                user_text=formatted_text,
+                system_log=response.system_log,  # Tuples are immutable, safe to share
+                memory_events=response.memory_events,  # Tuples are immutable, safe to share
+                tool_results=response.tool_results,  # Tuples are immutable, safe to share
+                success=response.success,
+                stability_score=response.stability_score,
+                stability_flags=response.stability_flags,  # Tuples are immutable, safe to share
+                error=response.error,  # Preserve error info
+            )
         )
 
     def _format_by_mode(
