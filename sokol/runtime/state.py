@@ -3,6 +3,7 @@
 from sokol.core.constants import STATE_TRANSITIONS
 from sokol.core.types import AgentState, AgentEvent, EventType
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 
 logger = get_logger("sokol.runtime.state")
 
@@ -37,18 +38,22 @@ class AgentStateMachine:
         """Previous state."""
         return self._previous_state
 
-    def can_transition_to(self, target: AgentState) -> bool:
+    def can_transition_to(self, target: AgentState) -> Result[bool]:
         """Check if transition to target state is valid."""
         allowed = STATE_TRANSITIONS.get(self._state, [])
-        return target in allowed
+        return Result.ok(target in allowed)
 
-    def transition(self, target: AgentState, reason: str = "") -> bool:
+    def transition(self, target: AgentState, reason: str = "") -> Result[bool]:
         """
         Attempt to transition to target state.
 
         Returns True if successful, False if invalid.
         """
-        if not self.can_transition_to(target):
+        can_transition_result = self.can_transition_to(target)
+        if not can_transition_result.is_ok():
+            return Result.ok(False)
+
+        if not can_transition_result.unwrap():
             logger.error_data(
                 "Invalid state transition attempted",
                 {
@@ -57,7 +62,7 @@ class AgentStateMachine:
                     "reason": reason,
                 },
             )
-            return False
+            return Result.ok(False)
 
         old_state = self._state
         self._previous_state = old_state
@@ -87,7 +92,7 @@ class AgentStateMachine:
             )
             self._event_callback(event)
 
-        return True
+        return Result.ok(True)
 
     def force_transition(self, target: AgentState, reason: str = "") -> None:
         """
@@ -130,19 +135,19 @@ class AgentStateMachine:
         """Set callback for state change events."""
         self._event_callback = callback
 
-    def is_busy(self) -> bool:
+    def is_busy(self) -> Result[bool]:
         """Check if agent is in a busy state (not idle or listening)."""
-        return self._state not in (
+        return Result.ok(self._state not in (
             AgentState.IDLE,
             AgentState.LISTENING,
-        )
+        ))
 
-    def can_accept_input(self) -> bool:
+    def can_accept_input(self) -> Result[bool]:
         """Check if agent can accept user input."""
-        return self._state in (
+        return Result.ok(self._state in (
             AgentState.IDLE,
             AgentState.LISTENING,
-        )
+        ))
 
     def __repr__(self) -> str:
         return f"AgentStateMachine(state={self._state.value})"
