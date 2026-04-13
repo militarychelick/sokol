@@ -5,6 +5,7 @@ from typing import Any
 
 from sokol.core.types import RiskLevel
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 from sokol.tools.base import Tool, ToolResult
 
 logger = get_logger("sokol.tools.builtin.system_info")
@@ -34,8 +35,8 @@ class SystemInfo(Tool[dict[str, Any]]):
             "check disk space",
         ]
 
-    def get_schema(self) -> dict[str, Any]:
-        return {
+    def get_schema(self) -> Result[dict]:
+        return Result.ok({
             "type": "object",
             "properties": {
                 "info_type": {
@@ -45,9 +46,9 @@ class SystemInfo(Tool[dict[str, Any]]):
                 },
             },
             "required": ["info_type"],
-        }
+        })
 
-    def execute(self, info_type: str) -> ToolResult[dict[str, Any]]:
+    def execute(self, info_type: str) -> Result[ToolResult[dict[str, Any]]]:
         """Get system information."""
         try:
             if info_type == "basic":
@@ -63,37 +64,43 @@ class SystemInfo(Tool[dict[str, Any]]):
             elif info_type == "network":
                 return self._get_network_info()
             else:
-                return ToolResult(
-                    success=False,
-                    error=f"Unknown info type: {info_type}",
-                    risk_level=self.risk_level,
+                return Result.ok(
+                    ToolResult(
+                        success=False,
+                        error=f"Unknown info type: {info_type}",
+                        risk_level=self.risk_level,
+                    )
                 )
 
         except Exception as e:
             logger.error_data("Failed to get system info", {"error": str(e)})
-            return ToolResult(
-                success=False,
-                error=str(e),
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=str(e),
+                    risk_level=self.risk_level,
+                )
             )
 
-    def _get_basic_info(self) -> ToolResult[dict[str, Any]]:
+    def _get_basic_info(self) -> Result[ToolResult[dict[str, Any]]]:
         """Get basic system info."""
-        return ToolResult(
-            success=True,
-            data={
-                "system": platform.system(),
-                "node": platform.node(),
-                "release": platform.release(),
-                "version": platform.version(),
-                "machine": platform.machine(),
-                "processor": platform.processor(),
-                "python_version": platform.python_version(),
-            },
-            risk_level=self.risk_level,
+        return Result.ok(
+            ToolResult(
+                success=True,
+                data={
+                    "system": platform.system(),
+                    "node": platform.node(),
+                    "release": platform.release(),
+                    "version": platform.version(),
+                    "machine": platform.machine(),
+                    "processor": platform.processor(),
+                    "python_version": platform.python_version(),
+                },
+                risk_level=self.risk_level,
+            )
         )
 
-    def _get_cpu_info(self) -> ToolResult[dict[str, Any]]:
+    def _get_cpu_info(self) -> Result[ToolResult[dict[str, Any]]]:
         """Get CPU info."""
         try:
             import psutil
@@ -102,28 +109,32 @@ class SystemInfo(Tool[dict[str, Any]]):
             cpu_count = psutil.cpu_count()
             cpu_freq = psutil.cpu_freq()
 
-            return ToolResult(
-                success=True,
-                data={
-                    "cpu_percent": cpu_percent,
-                    "cpu_count": cpu_count,
-                    "cpu_freq_current": cpu_freq.current if cpu_freq else None,
-                    "cpu_freq_min": cpu_freq.min if cpu_freq else None,
-                    "cpu_freq_max": cpu_freq.max if cpu_freq else None,
-                },
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=True,
+                    data={
+                        "cpu_percent": cpu_percent,
+                        "cpu_count": cpu_count,
+                        "cpu_freq_current": cpu_freq.current if cpu_freq else None,
+                        "cpu_freq_min": cpu_freq.min if cpu_freq else None,
+                        "cpu_freq_max": cpu_freq.max if cpu_freq else None,
+                    },
+                    risk_level=self.risk_level,
+                )
             )
         except ImportError:
-            return ToolResult(
-                success=True,
-                data={
-                    "cpu_count": platform.processor(),
-                    "note": "psutil not available for detailed CPU info",
-                },
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=True,
+                    data={
+                        "cpu_count": platform.processor(),
+                        "note": "psutil not available for detailed CPU info",
+                    },
+                    risk_level=self.risk_level,
+                )
             )
 
-    def _get_memory_info(self) -> ToolResult[dict[str, Any]]:
+    def _get_memory_info(self) -> Result[ToolResult[dict[str, Any]]]:
         """Get memory info."""
         try:
             import psutil
@@ -131,27 +142,31 @@ class SystemInfo(Tool[dict[str, Any]]):
             mem = psutil.virtual_memory()
             swap = psutil.swap_memory()
 
-            return ToolResult(
-                success=True,
-                data={
-                    "total_gb": round(mem.total / (1024**3), 2),
-                    "available_gb": round(mem.available / (1024**3), 2),
-                    "used_gb": round(mem.used / (1024**3), 2),
-                    "percent": mem.percent,
-                    "swap_total_gb": round(swap.total / (1024**3), 2),
-                    "swap_used_gb": round(swap.used / (1024**3), 2),
-                    "swap_percent": swap.percent,
-                },
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=True,
+                    data={
+                        "total_gb": round(mem.total / (1024**3), 2),
+                        "available_gb": round(mem.available / (1024**3), 2),
+                        "used_gb": round(mem.used / (1024**3), 2),
+                        "percent": mem.percent,
+                        "swap_total_gb": round(swap.total / (1024**3), 2),
+                        "swap_used_gb": round(swap.used / (1024**3), 2),
+                        "swap_percent": swap.percent,
+                    },
+                    risk_level=self.risk_level,
+                )
             )
         except ImportError:
-            return ToolResult(
-                success=False,
-                error="psutil required for memory info",
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error="psutil required for memory info",
+                    risk_level=self.risk_level,
+                )
             )
 
-    def _get_disk_info(self) -> ToolResult[dict[str, Any]]:
+    def _get_disk_info(self) -> Result[ToolResult[dict[str, Any]]]:
         """Get disk info."""
         try:
             import psutil
@@ -172,19 +187,23 @@ class SystemInfo(Tool[dict[str, Any]]):
                 except PermissionError:
                     pass
 
-            return ToolResult(
-                success=True,
-                data={"partitions": partitions},
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=True,
+                    data={"partitions": partitions},
+                    risk_level=self.risk_level,
+                )
             )
         except ImportError:
-            return ToolResult(
-                success=False,
-                error="psutil required for disk info",
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error="psutil required for disk info",
+                    risk_level=self.risk_level,
+                )
             )
 
-    def _get_process_info(self) -> ToolResult[dict[str, Any]]:
+    def _get_process_info(self) -> Result[ToolResult[dict[str, Any]]]:
         """Get process info."""
         try:
             import psutil
@@ -205,22 +224,26 @@ class SystemInfo(Tool[dict[str, Any]]):
             processes.sort(key=lambda x: x.get("cpu_percent", 0) or 0, reverse=True)
             top_processes = processes[:20]
 
-            return ToolResult(
-                success=True,
-                data={
-                    "total_count": len(processes),
-                    "top_processes": top_processes,
-                },
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=True,
+                    data={
+                        "total_count": len(processes),
+                        "top_processes": top_processes,
+                    },
+                    risk_level=self.risk_level,
+                )
             )
         except ImportError:
-            return ToolResult(
-                success=False,
-                error="psutil required for process info",
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error="psutil required for process info",
+                    risk_level=self.risk_level,
+                )
             )
 
-    def _get_network_info(self) -> ToolResult[dict[str, Any]]:
+    def _get_network_info(self) -> Result[ToolResult[dict[str, Any]]]:
         """Get network info."""
         try:
             import psutil
@@ -240,20 +263,24 @@ class SystemInfo(Tool[dict[str, Any]]):
             # Get network IO stats
             net_io = psutil.net_io_counters()
 
-            return ToolResult(
-                success=True,
-                data={
-                    "interfaces": interfaces,
-                    "bytes_sent": net_io.bytes_sent,
-                    "bytes_recv": net_io.bytes_recv,
-                    "packets_sent": net_io.packets_sent,
-                    "packets_recv": net_io.packets_recv,
-                },
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=True,
+                    data={
+                        "interfaces": interfaces,
+                        "bytes_sent": net_io.bytes_sent,
+                        "bytes_recv": net_io.bytes_recv,
+                        "packets_sent": net_io.packets_sent,
+                        "packets_recv": net_io.packets_recv,
+                    },
+                    risk_level=self.risk_level,
+                )
             )
         except ImportError:
-            return ToolResult(
-                success=False,
-                error="psutil required for network info",
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error="psutil required for network info",
+                    risk_level=self.risk_level,
+                )
             )

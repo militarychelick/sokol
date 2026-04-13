@@ -4,6 +4,7 @@ from typing import Any
 
 from sokol.core.types import RiskLevel
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 from sokol.tools.base import Tool, ToolResult
 
 logger = get_logger("sokol.tools.builtin.transcript")
@@ -32,8 +33,8 @@ class Transcript(Tool[dict[str, Any]]):
             "transcript the recording",
         ]
 
-    def get_schema(self) -> dict[str, Any]:
-        return {
+    def get_schema(self) -> Result[dict]:
+        return Result.ok({
             "type": "object",
             "properties": {
                 "file_path": {
@@ -46,9 +47,9 @@ class Transcript(Tool[dict[str, Any]]):
                 },
             },
             "required": [],
-        }
+        })
 
-    def execute(self, file_path: str = "", language: str = "auto") -> ToolResult[dict[str, Any]]:
+    def execute(self, file_path: str = "", language: str = "auto") -> Result[ToolResult[dict[str, Any]]]:
         """Transcribe audio/video file to text."""
         try:
             # Placeholder implementation - actual transcription requires API key
@@ -61,20 +62,24 @@ class Transcript(Tool[dict[str, Any]]):
             # Dummy transcription: return a placeholder message
             transcript_text = f"[Transcription not configured] File: {file_path or 'not specified'}"
 
-            return ToolResult(
-                success=True,
-                data={
-                    "file_path": file_path,
-                    "language": language,
-                    "transcript_text": transcript_text,
-                },
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=True,
+                    data={
+                        "file_path": file_path,
+                        "language": language,
+                        "transcript_text": transcript_text,
+                    },
+                    risk_level=self.risk_level,
+                )
             )
 
         except Exception as e:
             logger.error_data("Transcription failed", {"error": str(e)})
-            return ToolResult(
-                success=False,
-                error=str(e),
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=str(e),
+                    risk_level=self.risk_level,
+                )
             )

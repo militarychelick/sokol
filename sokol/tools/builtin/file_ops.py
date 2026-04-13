@@ -7,6 +7,7 @@ from typing import Any
 from sokol.core.types import RiskLevel
 from sokol.observability.debug import dry_run_mode
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 from sokol.tools.base import Tool, ToolResult
 
 logger = get_logger("sokol.tools.builtin.file_ops")
@@ -41,8 +42,8 @@ class FileOps(Tool[dict[str, Any]]):
             "list files in C:/Documents",
         ]
 
-    def get_schema(self) -> dict[str, Any]:
-        return {
+    def get_schema(self) -> Result[dict]:
+        return Result.ok({
             "type": "object",
             "properties": {
                 "action": {
@@ -64,7 +65,7 @@ class FileOps(Tool[dict[str, Any]]):
                 },
             },
             "required": ["action", "path"],
-        }
+        })
 
     def execute(
         self,
@@ -72,7 +73,7 @@ class FileOps(Tool[dict[str, Any]]):
         path: str,
         content: str | None = None,
         destination: str | None = None,
-    ) -> ToolResult[dict[str, Any]]:
+    ) -> Result[ToolResult[dict[str, Any]]]:
         """Execute file operation."""
         file_path = Path(path)
 
@@ -82,19 +83,23 @@ class FileOps(Tool[dict[str, Any]]):
         # Validate path
         if action != "list" and not file_path.exists():
             if action in ("read", "delete", "move"):
-                return ToolResult(
-                    success=False,
-                    error=f"Path does not exist: {path}",
-                    risk_level=risk,
+                return Result.ok(
+                    ToolResult(
+                        success=False,
+                        error=f"Path does not exist: {path}",
+                        risk_level=risk,
+                    )
                 )
 
         # Dry run mode
         if dry_run_mode():
             logger.info(f"DRY RUN: Would {action} on {path}")
-            return ToolResult(
-                success=True,
-                data={"action": action, "path": path, "dry_run": True},
-                risk_level=risk,
+            return Result.ok(
+                ToolResult(
+                    success=True,
+                    data={"action": action, "path": path, "dry_run": True},
+                    risk_level=risk,
+                )
             )
 
         try:
@@ -111,24 +116,30 @@ class FileOps(Tool[dict[str, Any]]):
             elif action == "move":
                 return self._move_file(file_path, Path(destination or ""))
             else:
-                return ToolResult(
-                    success=False,
-                    error=f"Unknown action: {action}",
-                    risk_level=risk,
+                return Result.ok(
+                    ToolResult(
+                        success=False,
+                        error=f"Unknown action: {action}",
+                        risk_level=risk,
+                    )
                 )
 
         except PermissionError:
-            return ToolResult(
-                success=False,
-                error=f"Permission denied: {path}",
-                risk_level=risk,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=f"Permission denied: {path}",
+                    risk_level=risk,
+                )
             )
         except Exception as e:
             logger.error_data("File operation failed", {"error": str(e)})
-            return ToolResult(
-                success=False,
-                error=str(e),
-                risk_level=risk,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=str(e),
+                    risk_level=risk,
+                )
             )
 
     def _get_action_risk(self, action: str) -> RiskLevel:
@@ -141,27 +152,31 @@ class FileOps(Tool[dict[str, Any]]):
             return RiskLevel.DANGEROUS
         return RiskLevel.WRITE
 
-    def _read_file(self, path: Path) -> ToolResult[dict[str, Any]]:
+    def _read_file(self, path: Path) -> Result[ToolResult[dict[str, Any]]]:
         """Read file contents."""
         if not path.is_file():
-            return ToolResult(
-                success=False,
-                error=f"Not a file: {path}",
-                risk_level=RiskLevel.READ,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=f"Not a file: {path}",
+                    risk_level=RiskLevel.READ,
+                )
             )
 
         content = path.read_text(encoding="utf-8")
-        return ToolResult(
-            success=True,
-            data={
-                "path": str(path),
-                "content": content,
-                "size": len(content),
-            },
-            risk_level=RiskLevel.READ,
+        return Result.ok(
+            ToolResult(
+                success=True,
+                data={
+                    "path": str(path),
+                    "content": content,
+                    "size": len(content),
+                },
+                risk_level=RiskLevel.READ,
+            )
         )
 
-    def _write_file(self, path: Path, content: str) -> ToolResult[dict[str, Any]]:
+    def _write_file(self, path: Path, content: str) -> Result[ToolResult[dict[str, Any]]]:
         """Write content to file."""
         # Store original for undo
         original_content = None
@@ -179,32 +194,38 @@ class FileOps(Tool[dict[str, Any]]):
 
         path.write_text(content, encoding="utf-8")
 
-        return ToolResult(
-            success=True,
-            data={
-                "path": str(path),
-                "size": len(content),
-                "created": not self._undo_info["existed"],
-            },
-            undo_available=True,
-            undo_info=self._undo_info,
-            risk_level=RiskLevel.WRITE,
+        return Result.ok(
+            ToolResult(
+                success=True,
+                data={
+                    "path": str(path),
+                    "size": len(content),
+                    "created": not self._undo_info["existed"],
+                },
+                undo_available=True,
+                undo_info=self._undo_info,
+                risk_level=RiskLevel.WRITE,
+            )
         )
 
-    def _list_directory(self, path: Path) -> ToolResult[dict[str, Any]]:
+    def _list_directory(self, path: Path) -> Result[ToolResult[dict[str, Any]]]:
         """List directory contents."""
         if not path.exists():
-            return ToolResult(
-                success=False,
-                error=f"Path does not exist: {path}",
-                risk_level=RiskLevel.READ,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=f"Path does not exist: {path}",
+                    risk_level=RiskLevel.READ,
+                )
             )
 
         if not path.is_dir():
-            return ToolResult(
-                success=False,
-                error=f"Not a directory: {path}",
-                risk_level=RiskLevel.READ,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=f"Not a directory: {path}",
+                    risk_level=RiskLevel.READ,
+                )
             )
 
         items = []
@@ -215,17 +236,19 @@ class FileOps(Tool[dict[str, Any]]):
                 "size": item.stat().st_size if item.is_file() else None,
             })
 
-        return ToolResult(
-            success=True,
-            data={
-                "path": str(path),
-                "items": items,
-                "count": len(items),
-            },
-            risk_level=RiskLevel.READ,
+        return Result.ok(
+            ToolResult(
+                success=True,
+                data={
+                    "path": str(path),
+                    "items": items,
+                    "count": len(items),
+                },
+                risk_level=RiskLevel.READ,
+            )
         )
 
-    def _delete_file(self, path: Path) -> ToolResult[dict[str, Any]]:
+    def _delete_file(self, path: Path) -> Result[ToolResult[dict[str, Any]]]:
         """Delete file or directory."""
         # Store for undo (move to trash)
         original_content = None
@@ -245,38 +268,46 @@ class FileOps(Tool[dict[str, Any]]):
         elif path.is_dir():
             shutil.rmtree(path)
 
-        return ToolResult(
-            success=True,
-            data={"path": str(path), "deleted": True},
-            undo_available=False,  # Can't truly undo delete
-            risk_level=RiskLevel.DANGEROUS,
+        return Result.ok(
+            ToolResult(
+                success=True,
+                data={"path": str(path), "deleted": True},
+                undo_available=False,  # Can't truly undo delete
+                risk_level=RiskLevel.DANGEROUS,
+            )
         )
 
-    def _copy_file(self, source: Path, dest: Path) -> ToolResult[dict[str, Any]]:
+    def _copy_file(self, source: Path, dest: Path) -> Result[ToolResult[dict[str, Any]]]:
         """Copy file."""
         if not dest:
-            return ToolResult(
-                success=False,
-                error="Destination required for copy",
-                risk_level=RiskLevel.WRITE,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error="Destination required for copy",
+                    risk_level=RiskLevel.WRITE,
+                )
             )
 
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, dest)
 
-        return ToolResult(
-            success=True,
-            data={"source": str(source), "destination": str(dest)},
-            risk_level=RiskLevel.WRITE,
+        return Result.ok(
+            ToolResult(
+                success=True,
+                data={"source": str(source), "destination": str(dest)},
+                risk_level=RiskLevel.WRITE,
+            )
         )
 
-    def _move_file(self, source: Path, dest: Path) -> ToolResult[dict[str, Any]]:
+    def _move_file(self, source: Path, dest: Path) -> Result[ToolResult[dict[str, Any]]]:
         """Move file."""
         if not dest:
-            return ToolResult(
-                success=False,
-                error="Destination required for move",
-                risk_level=RiskLevel.WRITE,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error="Destination required for move",
+                    risk_level=RiskLevel.WRITE,
+                )
             )
 
         self._undo_info = {
@@ -287,19 +318,21 @@ class FileOps(Tool[dict[str, Any]]):
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(source), str(dest))
 
-        return ToolResult(
-            success=True,
-            data={"source": str(source), "destination": str(dest)},
-            undo_available=True,
-            undo_info=self._undo_info,
-            risk_level=RiskLevel.WRITE,
+        return Result.ok(
+            ToolResult(
+                success=True,
+                data={"source": str(source), "destination": str(dest)},
+                undo_available=True,
+                undo_info=self._undo_info,
+                risk_level=RiskLevel.WRITE,
+            )
         )
 
-    def undo(self, undo_info: dict[str, Any] | None = None) -> ToolResult[bool]:
+    def undo(self, undo_info: dict[str, Any] | None = None) -> Result[ToolResult[bool]]:
         """Undo file operation."""
         undo_info = undo_info or self._undo_info
         if not undo_info:
-            return ToolResult(success=False, error="No undo info")
+            return Result.ok(ToolResult(success=False, error="No undo info"))
 
         try:
             # Undo write
@@ -309,7 +342,7 @@ class FileOps(Tool[dict[str, Any]]):
                     path.write_text(undo_info["original_content"], encoding="utf-8")
                 else:
                     path.unlink()
-                return ToolResult(success=True, data=True)
+                return Result.ok(ToolResult(success=True, data=True))
 
             # Undo move
             if "original_path" in undo_info:
@@ -317,9 +350,9 @@ class FileOps(Tool[dict[str, Any]]):
                     str(undo_info["new_path"]),
                     str(undo_info["original_path"]),
                 )
-                return ToolResult(success=True, data=True)
+                return Result.ok(ToolResult(success=True, data=True))
 
-            return ToolResult(success=False, error="Cannot undo this operation")
+            return Result.ok(ToolResult(success=False, error="Cannot undo this operation"))
 
         except Exception as e:
-            return ToolResult(success=False, error=str(e))
+            return Result.ok(ToolResult(success=False, error=str(e)))

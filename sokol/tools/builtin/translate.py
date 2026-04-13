@@ -4,6 +4,7 @@ from typing import Any
 
 from sokol.core.types import RiskLevel
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 from sokol.tools.base import Tool, ToolResult
 
 logger = get_logger("sokol.tools.builtin.translate")
@@ -32,8 +33,8 @@ class Translate(Tool[dict[str, Any]]):
             "translate the following text",
         ]
 
-    def get_schema(self) -> dict[str, Any]:
-        return {
+    def get_schema(self) -> Result[dict]:
+        return Result.ok({
             "type": "object",
             "properties": {
                 "text": {
@@ -46,9 +47,9 @@ class Translate(Tool[dict[str, Any]]):
                 },
             },
             "required": [],
-        }
+        })
 
-    def execute(self, text: str = "", target_language: str = "en") -> ToolResult[dict[str, Any]]:
+    def execute(self, text: str = "", target_language: str = "en") -> Result[ToolResult[dict[str, Any]]]:
         """Translate text to target language."""
         try:
             # Placeholder implementation - actual translation requires API key
@@ -61,20 +62,24 @@ class Translate(Tool[dict[str, Any]]):
             # Dummy translation: just repeat the text with language indicator
             translated_text = f"[{target_language.upper()}] {text}"
 
-            return ToolResult(
-                success=True,
-                data={
-                    "original_text": text,
-                    "target_language": target_language,
-                    "translated_text": translated_text,
-                },
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=True,
+                    data={
+                        "original_text": text,
+                        "target_language": target_language,
+                        "translated_text": translated_text,
+                    },
+                    risk_level=self.risk_level,
+                )
             )
 
         except Exception as e:
             logger.error_data("Translation failed", {"error": str(e)})
-            return ToolResult(
-                success=False,
-                error=str(e),
-                risk_level=self.risk_level,
+            return Result.ok(
+                ToolResult(
+                    success=False,
+                    error=str(e),
+                    risk_level=self.risk_level,
+                )
             )
