@@ -1,5 +1,6 @@
 """Response builder for unified output layer."""
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, Optional
 from enum import Enum
@@ -85,9 +86,9 @@ class ResponseBuilder:
     def _format_tool_result(self, result: Any) -> dict:
         """Format tool result for response."""
         if hasattr(result, "model_dump"):
-            return result.model_dump()
+            return copy.deepcopy(result.model_dump())
         elif hasattr(result, "__dict__"):
-            return result.__dict__
+            return copy.deepcopy(result.__dict__)
         else:
             return {"raw": str(result)}
 

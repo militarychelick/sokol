@@ -103,6 +103,15 @@ class FileOps(Tool[dict[str, Any]]):
             )
 
         try:
+            if action in ("copy", "move") and not destination:
+                return Result.ok(
+                    ToolResult(
+                        success=False,
+                        error=f"Destination is required for action: {action}",
+                        risk_level=risk,
+                    )
+                )
+
             if action == "read":
                 return self._read_file(file_path)
             elif action == "write":
@@ -112,9 +121,9 @@ class FileOps(Tool[dict[str, Any]]):
             elif action == "delete":
                 return self._delete_file(file_path)
             elif action == "copy":
-                return self._copy_file(file_path, Path(destination or ""))
+                return self._copy_file(file_path, Path(destination))
             elif action == "move":
-                return self._move_file(file_path, Path(destination or ""))
+                return self._move_file(file_path, Path(destination))
             else:
                 return Result.ok(
                     ToolResult(
@@ -250,7 +259,7 @@ class FileOps(Tool[dict[str, Any]]):
 
     def _delete_file(self, path: Path) -> Result[ToolResult[dict[str, Any]]]:
         """Delete file or directory."""
-        # Store for undo (move to trash)
+        # Store context for auditing (delete is irreversible in current implementation)
         original_content = None
         if path.is_file():
             original_content = path.read_text(encoding="utf-8")
@@ -262,7 +271,7 @@ class FileOps(Tool[dict[str, Any]]):
             "original_content": original_content,
         }
 
-        # Move to trash instead of permanent delete for undo support
+        # Permanent delete (no trash integration in current implementation)
         if path.is_file():
             path.unlink()
         elif path.is_dir():

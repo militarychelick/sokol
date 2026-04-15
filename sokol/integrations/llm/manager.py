@@ -108,7 +108,7 @@ class LLMManager:
         if not provider:
             logger.error(f"Primary provider {provider_name} not found")
             if use_fallback:
-                return self._complete_fallback(messages, **kwargs)
+                return self._complete_fallback(messages, excluded={provider_name}, **kwargs)
             raise ValueError(f"Provider {provider_name} not found")
 
         try:
@@ -118,7 +118,7 @@ class LLMManager:
             response = provider.complete(messages, **kwargs)
             
             # Log response (minimal)
-            logger.info_data("LLM Response", {"provider": provider_name, "char_count": len(response.text)})
+            logger.info_data("LLM Response", {"provider": provider_name, "char_count": len(response.content)})
             
             return response
         except Exception as e:
@@ -127,15 +127,15 @@ class LLMManager:
                              {"error": str(e), "traceback": traceback.format_exc()})
             
             if use_fallback:
-                return self._complete_fallback(messages, **kwargs)
+                return self._complete_fallback(messages, excluded={provider_name}, **kwargs)
             
-            # If no fallback requested, return empty response instead of crashing
-            return LLMResponse(text="LLM error", success=False, provider=provider_name)
+            return self._error_response(provider_name, f"LLM error: {str(e)}")
 
-    def _complete_fallback(self, messages: list[LLMMessage], **kwargs: Any) -> LLMResponse:
-        """Try all available providers as fallback."""
+    def _complete_fallback(self, messages: list[LLMMessage], excluded: set[str] | None = None, **kwargs: Any) -> LLMResponse:
+        """Try all available providers as explicit fallback chain."""
+        excluded = excluded or set()
         for name, provider in self._providers.items():
-            if name == self._config.llm.provider:
+            if name in excluded:
                 continue
             
             try:
@@ -144,7 +144,7 @@ class LLMManager:
             except Exception as e:
                 logger.warning(f"Fallback provider {name} failed: {e}")
         
-        return LLMResponse(text="All LLM providers failed", success=False, provider="none")
+        return self._error_response("none", "All LLM providers failed")
 
     async def complete_async(
         self,
@@ -180,7 +180,7 @@ class LLMManager:
             if fallback and fallback.name != provider.name:
                 return await fallback.complete_async(messages, **kwargs)
 
-            raise
+            return self._error_response(provider.name, "Primary provider timeout and no fallback available")
 
         except Exception as e:
             if not use_fallback:
@@ -190,7 +190,7 @@ class LLMManager:
             if fallback and fallback.name != provider.name:
                 return await fallback.complete_async(messages, **kwargs)
 
-            raise RuntimeError(f"All providers failed: {e}")
+            return self._error_response(provider.name, f"All providers failed: {str(e)}")
 
     def is_available(self) -> bool:
         """Check if any provider is available."""
@@ -210,6 +210,16 @@ class LLMManager:
             logger.info_data("Primary provider changed", {"provider": provider_name})
             return True
         return False
+
+    def _error_response(self, provider_name: str, message: str) -> LLMResponse:
+        """Build explicit error response in valid contract shape."""
+        return LLMResponse(
+            content=message,
+            model="error",
+            provider=provider_name,
+            finish_reason="error",
+            metadata={"error": True},
+        )
 
 
 # Global manager instance

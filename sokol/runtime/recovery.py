@@ -121,8 +121,9 @@ class FailureRecovery:
                 # Check confidence
                 fallback_confidence = 0.0
                 for tool_data in ranked_tools:
-                    if tool_data.get("tool") == best_fallback:
-                        fallback_confidence = tool_data.get("score", 0.0)
+                    candidate_tool = getattr(tool_data, "tool", None)
+                    if candidate_tool == best_fallback:
+                        fallback_confidence = getattr(tool_data, "score", 0.0)
                         break
 
                 if fallback_confidence >= self._min_fallback_confidence:

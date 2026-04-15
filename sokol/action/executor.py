@@ -104,18 +104,25 @@ class ActionExecutor:
         target: str,
         params: Dict[str, Any],
     ) -> ActionResult:
-        """Execute action using UIA."""
+        """Execute action using UIA (single-path, no internal fallback)."""
         if not self._uia_executor.is_available():
-            logger.warning("UIA not available, trying OCR fallback")
-            return self._execute_ocr_fallback(action_type, target, params)
+            logger.warning("UIA not available")
+            return ActionResult(
+                success=False,
+                error="UIA executor is not available",
+                method_used="uia_unavailable",
+            )
 
         try:
             result = self._uia_executor.execute(action_type, target, params)
-            return result
+            return self._normalize_result(result, "uia")
         except Exception as e:
             logger.error_data("UIA execution failed", {"error": str(e)})
-            # Fallback to OCR
-            return self._execute_ocr_fallback(action_type, target, params)
+            return ActionResult(
+                success=False,
+                error=f"UIA execution failed: {str(e)}",
+                method_used="uia",
+            )
 
     def _execute_browser(
         self,
@@ -123,18 +130,25 @@ class ActionExecutor:
         target: str,
         params: Dict[str, Any],
     ) -> ActionResult:
-        """Execute action using browser DOM automation."""
+        """Execute action using browser DOM automation (single-path)."""
         if not self._browser_executor.is_available():
-            logger.warning("Browser automation not available, trying OCR fallback")
-            return self._execute_ocr_fallback(action_type, target, params)
+            logger.warning("Browser automation not available")
+            return ActionResult(
+                success=False,
+                error="Browser executor is not available",
+                method_used="browser_unavailable",
+            )
 
         try:
             result = self._browser_executor.execute(action_type, target, params)
-            return result
+            return self._normalize_result(result, "browser")
         except Exception as e:
             logger.error_data("Browser execution failed", {"error": str(e)})
-            # Fallback to OCR
-            return self._execute_ocr_fallback(action_type, target, params)
+            return ActionResult(
+                success=False,
+                error=f"Browser execution failed: {str(e)}",
+                method_used="browser",
+            )
 
     def _execute_ocr_fallback(
         self,
@@ -165,7 +179,7 @@ class ActionExecutor:
 
         try:
             result = self._ocr_fallback.execute(action_type, target, params)
-            return result
+            return self._normalize_result(result, "ocr")
         except Exception as e:
             logger.error_data("OCR fallback failed", {"error": str(e)})
             return ActionResult(
@@ -199,4 +213,23 @@ class ActionExecutor:
             self._uia_executor.is_available()
             or self._browser_executor.is_available()
             or self._ocr_fallback.is_available()
+        )
+
+    def _normalize_result(self, result: Any, method: str) -> ActionResult:
+        """Normalize executor outputs to ActionResult contract."""
+        if isinstance(result, ActionResult):
+            if not result.method_used:
+                result.method_used = method
+            return result
+        if isinstance(result, dict):
+            return ActionResult(
+                success=bool(result.get("success", False)),
+                data=result.get("data"),
+                error=result.get("error"),
+                method_used=result.get("method_used", method),
+            )
+        return ActionResult(
+            success=False,
+            error="Unsupported action executor return type",
+            method_used=method,
         )

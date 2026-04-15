@@ -1,4 +1,4 @@
-"""Main window with chat interface and panels."""
+"""Main window with control-center interface and observer panels."""
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -12,11 +12,8 @@ from PyQt6.QtWidgets import (
     QLabel,
     QSplitter,
     QTabWidget,
-    QMenuBar,
-    QMenu,
     QDialog,
     QFormLayout,
-    QSpinBox,
     QComboBox,
     QCheckBox,
 )
@@ -38,6 +35,9 @@ class MainWindow(QMainWindow):
     state_changed = pyqtSignal(object)
     log_received = pyqtSignal(str)
     history_updated = pyqtSignal(str)
+    runtime_event_received = pyqtSignal(str)
+    telemetry_updated = pyqtSignal(str)
+    safety_updated = pyqtSignal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -55,103 +55,118 @@ class MainWindow(QMainWindow):
         """Setup UI components."""
         # Window properties
         self.setWindowTitle(self._config.agent.name)
-        self.setMinimumSize(400, 500)
-        self.resize(800, 700)
+        self.setMinimumSize(1000, 680)
+        self.resize(1360, 860)
 
-        # Central widget with tabs
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
 
-        # Status bar
+        # Top status badge
         self._status_label = QLabel(self._get_status_text(AgentState.IDLE))
         self._status_label.setStyleSheet(
-            "padding: 4px; background-color: #2d2d2d; border-radius: 4px;"
+            "padding: 6px 10px; background-color: #2d2d2d; border-radius: 4px; font-weight: bold;"
         )
         layout.addWidget(self._status_label)
 
-        # Tab widget
+        # Main split: conversation + control center tabs
+        self._main_splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(8)
+
+        self._chat_history = QTextEdit()
+        self._chat_history.setReadOnly(True)
+        self._chat_history.setStyleSheet("background-color: #1e1e1e; border: none; border-radius: 4px;")
+        left_layout.addWidget(self._chat_history, stretch=1)
+
+        input_layout = QHBoxLayout()
+        self._input_field = QLineEdit()
+        self._input_field.setPlaceholderText("Введите команду или вопрос...")
+        self._input_field.setStyleSheet(
+            "background-color: #2d2d2d; border: 1px solid #3d3d3d; border-radius: 4px; padding: 8px;"
+        )
+        self._input_field.returnPressed.connect(self._on_send)
+        self._send_button = QPushButton("Send")
+        self._send_button.setStyleSheet(
+            "background-color: #0078d4; border: none; border-radius: 4px; padding: 8px 16px;"
+        )
+        self._emergency_button = QPushButton("EMERGENCY")
+        self._emergency_button.setStyleSheet(
+            "background-color: #d41a1a; border: none; border-radius: 4px; padding: 8px 16px; font-weight: bold;"
+        )
+        self._emergency_button.clicked.connect(self._on_emergency_stop)
+        input_layout.addWidget(self._input_field, stretch=1)
+        input_layout.addWidget(self._send_button)
+        input_layout.addWidget(self._emergency_button)
+        left_layout.addLayout(input_layout)
+
         self._tab_widget = QTabWidget()
         self._tab_widget.setStyleSheet(
             "QTabWidget::pane { border: 1px solid #3d3d3d; }"
             "QTabBar::tab { background-color: #2d2d2d; color: white; padding: 8px; }"
             "QTabBar::tab:selected { background-color: #0078d4; }"
         )
+        self._tab_names: dict[str, int] = {}
 
-        # Chat tab
-        self._chat_tab = QWidget()
-        chat_layout = QVBoxLayout(self._chat_tab)
-        
-        self._chat_history = QTextEdit()
-        self._chat_history.setReadOnly(True)
-        self._chat_history.setStyleSheet(
-            "background-color: #1e1e1e; border: none; border-radius: 4px;"
-        )
-        chat_layout.addWidget(self._chat_history, stretch=1)
+        self._overview_tab = QWidget()
+        overview_layout = QVBoxLayout(self._overview_tab)
+        self._overview_text = QTextEdit()
+        self._overview_text.setReadOnly(True)
+        self._overview_text.setPlaceholderText("Runtime overview and last known execution state.")
+        overview_layout.addWidget(self._overview_text)
 
-        # Input area in chat tab
-        input_layout = QHBoxLayout()
+        self._runtime_tab = QWidget()
+        runtime_layout = QVBoxLayout(self._runtime_tab)
+        self._runtime_timeline = QTextEdit()
+        self._runtime_timeline.setReadOnly(True)
+        self._runtime_timeline.setPlaceholderText("Execution timeline: input -> decision -> events -> response.")
+        runtime_layout.addWidget(self._runtime_timeline)
 
-        self._input_field = QLineEdit()
-        self._input_field.setPlaceholderText("Enter command...")
-        self._input_field.setStyleSheet(
-            "background-color: #2d2d2d; border: 1px solid #3d3d3d; "
-            "border-radius: 4px; padding: 8px;"
-        )
-        self._input_field.returnPressed.connect(self._on_send)
-
-        self._send_button = QPushButton("Send")
-        self._send_button.setStyleSheet(
-            "background-color: #0078d4; border: none; "
-            "border-radius: 4px; padding: 8px 16px;"
-        )
-
-        self._emergency_button = QPushButton("STOP")
-        self._emergency_button.setStyleSheet(
-            "background-color: #d41a1a; border: none; "
-            "border-radius: 4px; padding: 8px 16px; font-weight: bold;"
-        )
-        self._emergency_button.clicked.connect(self._on_emergency_stop)
-
-        input_layout.addWidget(self._input_field, stretch=1)
-        input_layout.addWidget(self._send_button)
-        input_layout.addWidget(self._emergency_button)
-
-        chat_layout.addLayout(input_layout)
-
-        self._tab_widget.addTab(self._chat_tab, "Chat")
-
-        # History tab
         self._history_tab = QWidget()
         history_layout = QVBoxLayout(self._history_tab)
-        
         self._history_viewer = QTextEdit()
         self._history_viewer.setReadOnly(True)
-        self._history_viewer.setStyleSheet(
-            "background-color: #1e1e1e; border: none; border-radius: 4px;"
-        )
-        self._history_viewer.setPlaceholderText("History viewer - shows past sessions")
+        self._history_viewer.setStyleSheet("background-color: #1e1e1e; border: none; border-radius: 4px;")
+        self._history_viewer.setPlaceholderText("История взаимодействий и memory projection.")
         history_layout.addWidget(self._history_viewer, stretch=1)
 
-        self._tab_widget.addTab(self._history_tab, "History")
-
-        # Logs tab
         self._logs_tab = QWidget()
         logs_layout = QVBoxLayout(self._logs_tab)
-        
         self._logs_viewer = QTextEdit()
         self._logs_viewer.setReadOnly(True)
         self._logs_viewer.setStyleSheet(
             "background-color: #1e1e1e; border: none; border-radius: 4px; font-family: monospace; font-size: 10px;"
         )
-        self._logs_viewer.setPlaceholderText("Logs viewer - shows system logs")
+        self._logs_viewer.setPlaceholderText("Runtime logs and observer messages.")
         logs_layout.addWidget(self._logs_viewer, stretch=1)
 
-        self._tab_widget.addTab(self._logs_tab, "Logs")
+        self._safety_tab = QWidget()
+        safety_layout = QVBoxLayout(self._safety_tab)
+        self._safety_viewer = QTextEdit()
+        self._safety_viewer.setReadOnly(True)
+        self._safety_viewer.setPlaceholderText("Safety events: confirms, emergency, unavailable features.")
+        safety_layout.addWidget(self._safety_viewer, stretch=1)
 
-        layout.addWidget(self._tab_widget, stretch=1)
+        self._telemetry_panel = QTextEdit()
+        self._telemetry_panel.setReadOnly(True)
+        self._telemetry_panel.setPlaceholderText("Telemetry: queue depth, acceptance, drop rate, loop state.")
+        runtime_layout.addWidget(self._telemetry_panel)
+
+        self._tab_names["overview"] = self._tab_widget.addTab(self._overview_tab, "Overview")
+        self._tab_names["runtime"] = self._tab_widget.addTab(self._runtime_tab, "Runtime")
+        self._tab_names["history"] = self._tab_widget.addTab(self._history_tab, "History")
+        self._tab_names["logs"] = self._tab_widget.addTab(self._logs_tab, "Logs")
+        self._tab_names["safety"] = self._tab_widget.addTab(self._safety_tab, "Safety")
+
+        self._main_splitter.addWidget(left_widget)
+        self._main_splitter.addWidget(self._tab_widget)
+        self._main_splitter.setSizes([760, 560])
+        layout.addWidget(self._main_splitter, stretch=1)
 
         # Apply dark theme
         self.setStyleSheet(
@@ -171,18 +186,16 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
         menubar.setStyleSheet("QMenuBar { background-color: #2d2d2d; color: white; }")
 
-        # Settings menu
         settings_menu = menubar.addMenu("Settings")
-        
         settings_action = settings_menu.addAction("Preferences")
         settings_action.triggered.connect(self._show_settings_dialog)
 
-        # View menu
         view_menu = menubar.addMenu("View")
-        
-        view_menu.addAction("Chat").triggered.connect(lambda: self._tab_widget.setCurrentIndex(0))
-        view_menu.addAction("History").triggered.connect(lambda: self._tab_widget.setCurrentIndex(1))
-        view_menu.addAction("Logs").triggered.connect(lambda: self._tab_widget.setCurrentIndex(2))
+        view_menu.addAction("Overview").triggered.connect(lambda: self.navigate_to("overview"))
+        view_menu.addAction("Runtime").triggered.connect(lambda: self.navigate_to("runtime"))
+        view_menu.addAction("History").triggered.connect(lambda: self.navigate_to("history"))
+        view_menu.addAction("Logs").triggered.connect(lambda: self.navigate_to("logs"))
+        view_menu.addAction("Safety").triggered.connect(lambda: self.navigate_to("safety"))
 
     def _show_settings_dialog(self) -> None:
         """Show settings dialog."""
@@ -234,6 +247,9 @@ class MainWindow(QMainWindow):
         self.state_changed.connect(self.update_state)
         self.log_received.connect(self.append_log)
         self.history_updated.connect(self.update_history)
+        self.runtime_event_received.connect(self.append_runtime_event)
+        self.telemetry_updated.connect(self.update_telemetry)
+        self.safety_updated.connect(self.append_safety_event)
 
     def _on_send(self) -> None:
         """Handle send button click."""
@@ -246,6 +262,7 @@ class MainWindow(QMainWindow):
     def _on_emergency_stop(self) -> None:
         """Handle emergency stop button."""
         self._add_message("system", "EMERGENCY STOP REQUESTED")
+        self.append_safety_event("Emergency stop requested from UI.")
         self.emergency_stop_requested.emit()
 
     def _add_message(self, role: str, content: str) -> None:
@@ -309,6 +326,10 @@ class MainWindow(QMainWindow):
     def add_assistant_message(self, content: str) -> None:
         """Add assistant message to chat."""
         self._add_message("assistant", content)
+        self._overview_text.setText(
+            f"State: {self._current_state.value}\n\nLast response:\n{content}"
+        )
+        self.append_runtime_event(f"response_emitted: {content[:140]}")
 
     def add_system_message(self, content: str) -> None:
         """Add system message to chat."""
@@ -325,6 +346,10 @@ class MainWindow(QMainWindow):
             f"padding: 4px; background-color: {color}; "
             f"border-radius: 4px; color: white; font-weight: bold;"
         )
+        self._overview_text.setText(
+            f"State: {state.value}\n\nControl Center projections active."
+        )
+        self.append_runtime_event(f"state_changed: {state.value}")
 
     def set_input_enabled(self, enabled: bool) -> None:
         """Enable/disable input."""
@@ -352,6 +377,27 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Failed to update history: {e}")
             self._history_viewer.setText(f"Error loading history: {e}")
+
+    def append_runtime_event(self, event_line: str) -> None:
+        """Append event to runtime timeline."""
+        self._runtime_timeline.append(event_line)
+        cursor = self._runtime_timeline.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self._runtime_timeline.setTextCursor(cursor)
+
+    def update_telemetry(self, telemetry_text: str) -> None:
+        """Update runtime telemetry panel."""
+        self._telemetry_panel.setPlainText(telemetry_text)
+
+    def append_safety_event(self, safety_line: str) -> None:
+        """Append line to safety panel."""
+        self._safety_viewer.append(safety_line)
+
+    def navigate_to(self, section: str) -> None:
+        """Navigate to a control-center section."""
+        index = self._tab_names.get(section)
+        if index is not None:
+            self._tab_widget.setCurrentIndex(index)
 
     def update_logs(self, log_data: str) -> None:
         """Update logs viewer with data."""

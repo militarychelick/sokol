@@ -46,29 +46,25 @@ class Transcript(Tool[dict[str, Any]]):
                     "description": "Language code (e.g., 'en', 'ru', 'auto')",
                 },
             },
-            "required": [],
+            "required": ["file_path"],
         })
 
     def execute(self, file_path: str = "", language: str = "auto") -> Result[ToolResult[dict[str, Any]]]:
         """Transcribe audio/video file to text."""
         try:
-            # Placeholder implementation - actual transcription requires API key
-            # For now, return a message indicating transcription service is not configured
+            # Explicitly fail while service is unconfigured (no fake success).
             logger.info_data(
-                "Transcription placeholder",
+                "Transcription unavailable",
                 {"file_path": file_path[:50] if file_path else "none", "language": language},
             )
 
-            # Dummy transcription: return a placeholder message
-            transcript_text = f"[Transcription not configured] File: {file_path or 'not specified'}"
-
             return Result.ok(
                 ToolResult(
-                    success=True,
+                    success=False,
+                    error="Transcription service is not configured in this build",
                     data={
                         "file_path": file_path,
                         "language": language,
-                        "transcript_text": transcript_text,
                     },
                     risk_level=self.risk_level,
                 )

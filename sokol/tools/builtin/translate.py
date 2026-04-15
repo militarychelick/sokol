@@ -46,30 +46,23 @@ class Translate(Tool[dict[str, Any]]):
                     "description": "Target language code (e.g., 'en', 'ru', 'de')",
                 },
             },
-            "required": [],
+            "required": ["text", "target_language"],
         })
 
     def execute(self, text: str = "", target_language: str = "en") -> Result[ToolResult[dict[str, Any]]]:
         """Translate text to target language."""
         try:
-            # Placeholder implementation - actual translation requires API key
-            # For now, return a dummy translation
+            # Explicitly fail while service is unconfigured (no fake success).
             logger.info_data(
-                "Translation placeholder",
+                "Translation unavailable",
                 {"text": text[:50], "target_language": target_language},
             )
 
-            # Dummy translation: just repeat the text with language indicator
-            translated_text = f"[{target_language.upper()}] {text}"
-
             return Result.ok(
                 ToolResult(
-                    success=True,
-                    data={
-                        "original_text": text,
-                        "target_language": target_language,
-                        "translated_text": translated_text,
-                    },
+                    success=False,
+                    error="Translation service is not configured in this build",
+                    data={"original_text": text, "target_language": target_language},
                     risk_level=self.risk_level,
                 )
             )

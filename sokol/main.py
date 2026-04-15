@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+from PyQt6.QtCore import QTimer
 
 from sokol.core.config import get_config, reload_config
 from sokol.core.types import AgentState, EventType
@@ -18,6 +19,8 @@ from sokol.ui.tray import TrayIcon
 from sokol.perception.voice_input import VoiceInputAdapter
 from sokol.perception.screen_input import ScreenInputAdapter
 from sokol.perception.wake_word import WakeWordDetector
+from sokol.runtime.result import Result
+from sokol.runtime.errors import ErrorBuilder, ErrorCategory
 
 logger = get_logger("sokol.main")
 
@@ -129,20 +132,54 @@ def main() -> int:
         # Submit through live loop controller
         loop_controller.submit_text(text)
 
-    # Wire state change callback
-    def on_state_change(state: AgentState) -> None:
-        """Handle agent state changes."""
+    # State projection listener (observer-only event stream).
+    def on_state_event(event) -> None:
+        state_name = (event.data or {}).get("to_state")
+        if not state_name:
+            return
+        try:
+            state = AgentState(state_name)
+        except Exception:
+            return
         main_window.state_changed.emit(state)
         tray.update_state(state)
+        main_window.runtime_event_received.emit(
+            f"state_change: {event.source} -> {state_name} reason={(event.data or {}).get('reason', '')}"
+        )
+
+    def on_runtime_event(event) -> None:
+        data = event.data or {}
+        main_window.runtime_event_received.emit(f"{event.type.value}: source={event.source} payload={data}")
+        if event.type in {EventType.EMERGENCY_STOP, EventType.CONFIRM_REQUEST, EventType.ERROR}:
+            main_window.safety_updated.emit(f"{event.type.value}: {data}")
 
     # Wire response callback
     def on_response(message: str) -> None:
         """Handle agent responses."""
         main_window.response_received.emit(message)
 
-    # Wire loop controller callbacks
-    loop_controller.set_state_change_callback(on_state_change)
-    loop_controller.set_response_callback(on_response)
+    def response_result_channel(message: str) -> Result[bool]:
+        """Single response delivery channel for runtime output."""
+        try:
+            on_response(message)
+            return Result.ok(True)
+        except Exception as e:
+            error_info = ErrorBuilder.from_exception(
+                e,
+                category=ErrorCategory.INFRASTRUCTURE,
+                context={"phase": "ui_response_channel"},
+            )
+            return Result.error(error_info)
+
+    # Observer-only state projection via orchestrator event stream.
+    orchestrator.event_bus.subscribe(EventType.STATE_CHANGE, on_state_event)
+    orchestrator.event_bus.subscribe(EventType.USER_INPUT, on_runtime_event)
+    orchestrator.event_bus.subscribe(EventType.CONFIRM_REQUEST, on_runtime_event)
+    orchestrator.event_bus.subscribe(EventType.EMERGENCY_STOP, on_runtime_event)
+    orchestrator.event_bus.subscribe(EventType.TOOL_RESULT, on_runtime_event)
+    orchestrator.event_bus.subscribe(EventType.ERROR, on_runtime_event)
+    # loop_controller.set_response_callback REMOVED
+    loop_controller.set_response_result_channel(response_result_channel)
 
     # Wire history and logs updates
     def update_ui_panels() -> None:
@@ -163,16 +200,10 @@ def main() -> int:
         except Exception as e:
             logger.error(f"Failed to update UI panels: {e}")
 
-    # Wire orchestrator callbacks (response and state only - input handled by UI signal)
-    # Note: on_input is NOT set here to avoid double callback invocation
-    # UI signal message_sent already calls on_user_input
-    orchestrator.set_callbacks(
-        on_input=None,  # Handled by UI signal to avoid duplication
-        on_response=on_response,
-        on_confirm=None,  # Will use default or be wired later
-        on_preprocess=None,
-    )
-    orchestrator.event_bus.subscribe(EventType.STATE_CHANGE, on_state_change)
+    # PHASE B B5 FIX: Remove orchestrator callbacks (UI purification)
+    # UI now observes via event stream only, no callbacks into kernel
+    # orchestrator.set_callbacks REMOVED (no callback registration)
+    # orchestrator.event_bus.subscribe REMOVED (UI observes via event stream only)
 
     # Wire UI signals
     main_window.message_sent.connect(on_user_input)
@@ -184,6 +215,30 @@ def main() -> int:
     tray.emergency_stop_requested.connect(
         lambda: loop_controller.submit_text("emergency stop", source="tray")
     )
+    tray.open_section_requested.connect(main_window.navigate_to)
+
+    # Periodic observer-only UI projections.
+    ui_projection_timer = QTimer()
+    ui_projection_timer.setInterval(1000)
+    ui_projection_timer.timeout.connect(update_ui_panels)
+
+    def publish_telemetry() -> None:
+        try:
+            health = loop_controller.get_health_status()
+            metrics = loop_controller.get_metrics()
+            telemetry = (
+                f"queue_pressure={loop_controller.get_queue_pressure()}\n"
+                f"queue_fill={loop_controller.get_queue_fill_ratio():.2f}\n"
+                f"health={health.get('status', 'unknown')}\n"
+                f"metrics_keys={list(metrics.keys())[:6]}"
+            )
+            main_window.telemetry_updated.emit(telemetry)
+        except Exception as e:
+            logger.error(f"Telemetry projection failed: {e}")
+
+    telemetry_timer = QTimer()
+    telemetry_timer.setInterval(1200)
+    telemetry_timer.timeout.connect(publish_telemetry)
 
     # Start orchestrator
     orchestrator.start()
@@ -191,6 +246,10 @@ def main() -> int:
     # Start live loop controller
     loop_controller.start()
     logger.info("Live loop controller started")
+    update_ui_panels()
+    publish_telemetry()
+    ui_projection_timer.start()
+    telemetry_timer.start()
 
     # Run application
     logger.info("Application ready")
@@ -201,6 +260,8 @@ def main() -> int:
         logger.info("Keyboard interrupt received")
         exit_code = 0
     finally:
+        ui_projection_timer.stop()
+        telemetry_timer.stop()
         loop_controller.stop()
         orchestrator.stop("shutdown")
         memory.shutdown()

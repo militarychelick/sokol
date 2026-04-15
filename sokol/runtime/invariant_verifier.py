@@ -208,7 +208,10 @@ class InvariantVerifier:
             decision_source: Source of decision
             system_impact: Impact on system (NONE, STATE_CHANGE, EVENT_DECISION)
         """
-        if decision_source == "OBSERVER" and system_impact != "NONE":
+        source_str = decision_source or ""
+        source = source_str.upper()
+        is_observer_source = source == "OBSERVER" or source_str.startswith("observe_")
+        if is_observer_source and system_impact != "NONE":
             violation = InvariantViolation(
                 invariant_type=InvariantType.OBSERVER_READ_ONLY,
                 timestamp=time.time(),

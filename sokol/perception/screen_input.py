@@ -160,6 +160,8 @@ class ScreenInputAdapter:
             return None
 
         try:
+            import io
+            from PIL import Image
             from sokol.action.ocr_fallback import OCRFallback
 
             ocr = OCRFallback()
@@ -167,7 +169,13 @@ class ScreenInputAdapter:
                 logger.warning("OCR not available")
                 return None
 
-            result = ocr._find_text_location(None, text)  # Simplified call
+            snapshot = self.capture()
+            if not snapshot.image_bytes:
+                logger.warning("Screen snapshot unavailable for OCR element search")
+                return None
+
+            image = Image.open(io.BytesIO(snapshot.image_bytes))
+            result = ocr._find_text_location(image, text)
             if result:
                 x, y = result
                 return ScreenElement(

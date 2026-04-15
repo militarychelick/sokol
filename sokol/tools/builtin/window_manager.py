@@ -196,7 +196,7 @@ class WindowManager(Tool[dict[str, Any]]):
                     "action": action,
                     "window_title": original_state["title"],
                 },
-                undo_available=True,
+                undo_available=action != "close",
                 undo_info=self._undo_info,
                 risk_level=self.risk_level,
             )

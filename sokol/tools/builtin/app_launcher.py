@@ -7,6 +7,7 @@ from typing import Any
 from sokol.core.types import RiskLevel
 from sokol.observability.debug import dry_run_mode
 from sokol.observability.logging import get_logger
+from sokol.runtime.result import Result
 from sokol.tools.base import Tool, ToolResult
 
 logger = get_logger("sokol.tools.builtin.app_launcher")
@@ -48,7 +49,8 @@ class AppLauncher(Tool[dict[str, Any]]):
 
     @property
     def risk_level(self) -> RiskLevel:
-        return RiskLevel.READ  # Opening apps is generally safe
+        # Launching processes can alter system state and may request elevation.
+        return RiskLevel.WRITE
 
     @property
     def examples(self) -> list[str]:
@@ -86,7 +88,7 @@ class AppLauncher(Tool[dict[str, Any]]):
         app_name: str,
         args: list[str] | None = None,
         elevated: bool = False,
-    ) -> ToolResult[dict[str, Any]]:
+    ) -> Result[ToolResult[dict[str, Any]]]:
         """Execute app launch."""
         # Normalize app name
         app_name_lower = app_name.lower().strip()
@@ -107,7 +109,7 @@ class AppLauncher(Tool[dict[str, Any]]):
         # Dry run mode
         if dry_run_mode():
             logger.info("DRY RUN: Would launch app")
-            return ToolResult(
+            return Result.ok(ToolResult(
                 success=True,
                 data={
                     "app_name": app_name,
@@ -115,7 +117,7 @@ class AppLauncher(Tool[dict[str, Any]]):
                     "dry_run": True,
                 },
                 risk_level=self.risk_level,
-            )
+            ))
 
         try:
             if elevated:
@@ -140,7 +142,7 @@ class AppLauncher(Tool[dict[str, Any]]):
                 )
                 process_info = {"pid": process.pid, "elevated": False}
 
-            return ToolResult(
+            return Result.ok(ToolResult(
                 success=True,
                 data={
                     "app_name": app_name,
@@ -148,18 +150,18 @@ class AppLauncher(Tool[dict[str, Any]]):
                     "process": process_info,
                 },
                 risk_level=self.risk_level,
-            )
+            ))
 
         except FileNotFoundError:
-            return ToolResult(
+            return Result.ok(ToolResult(
                 success=False,
                 error=f"Application not found: {app_name}",
                 risk_level=self.risk_level,
-            )
+            ))
         except Exception as e:
             logger.error_data("Failed to launch app", {"error": str(e)})
-            return ToolResult(
+            return Result.ok(ToolResult(
                 success=False,
                 error=f"Failed to launch {app_name}: {str(e)}",
                 risk_level=self.risk_level,
-            )
+            ))

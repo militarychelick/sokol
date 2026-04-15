@@ -140,10 +140,10 @@ class ResilienceObserver:
         self._emergency_latencies.append(latency_ms)
         
         severity = "info"
-        if latency_ms > 1000:
-            severity = "warning"
-        elif latency_ms > 5000:
+        if latency_ms > 5000:
             severity = "error"
+        elif latency_ms > 1000:
+            severity = "warning"
         
         observation = Observation(
             observation_type=ObservationType.EMERGENCY_LATENCY,

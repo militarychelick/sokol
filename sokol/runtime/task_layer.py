@@ -273,14 +273,14 @@ class TaskManager:
 
         return Result.ok(task)
 
-    def get_active_task(self) -> Result[Task | None]:
+    def get_active_task(self) -> Task | None:
         """
         Get the currently active task.
 
         Returns:
             Active task or None
         """
-        return Result.ok(self._active_task)
+        return self._active_task
 
     def update_task_status(
         self,
@@ -337,7 +337,7 @@ class TaskManager:
         """
         task_result = self.update_task_status(task_id, TaskStatus.COMPLETED)
         if task_result.is_ok():
-            task = task_result.unwrap()
+            task = task_result.value
             # Clear active task if it was the one completed
             if self._active_task and self._active_task.task_id == task_id:
                 self._active_task = None
@@ -360,7 +360,7 @@ class TaskManager:
         """
         task_result = self.update_task_status(task_id, TaskStatus.FAILED)
         if task_result.is_ok():
-            task = task_result.unwrap()
+            task = task_result.value
             task.metadata["failure_reason"] = reason
             # Clear active task if it was the one failed
             if self._active_task and self._active_task.task_id == task_id:
@@ -471,9 +471,9 @@ class TaskManager:
             "updated_at": task.updated_at,
         }
 
-    def get_active_task(self) -> Result[Task | None]:
+    def get_active_task(self) -> Task | None:
         """Get currently active task."""
-        return Result.ok(self._active_task)
+        return self._active_task
 
     def cancel_all(self, reason: str = "cancelled") -> int:
         """

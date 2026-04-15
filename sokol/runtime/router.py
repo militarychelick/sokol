@@ -152,9 +152,10 @@ class IntentRouter:
         # Priority: LLM first, then rule-based
         self._priority = [DecisionSource.LLM, DecisionSource.RULE_BASED]
 
-    def route(self, user_input: str) -> ProposedAction:
+    def route(self, user_input: str) -> Result[ProposedAction]:
         """
         Route user input through decision pipeline.
+        PHASE A: Changed return type to Result[ProposedAction] to eliminate None returns.
 
         Returns proposed action from highest priority source.
         """
@@ -163,28 +164,32 @@ class IntentRouter:
         # Try each source in priority order
         for source in self._priority:
             if source == DecisionSource.LLM:
-                action = self._try_llm(user_input)
-                if action:
+                action_result = self._try_llm(user_input)
+                if action_result.is_ok():
+                    action = action_result.value
                     logger.info_data("LLM proposed action", {"action": action.action_type})
-                    return action
+                    return action_result
 
             elif source == DecisionSource.RULE_BASED:
-                action = self._try_rule_based(user_input)
-                if action:
+                action_result = self._try_rule_based(user_input)
+                if action_result.is_ok():
+                    action = action_result.value
                     logger.info_data("Rule-based proposed action", {"action": action.action_type})
-                    return action
+                    return action_result
 
-        # All sources failed - return simple response instead of REJECTED
-        logger.warning("No source could process input, returning simple response")
-        return ProposedAction(
-            source=DecisionSource.RULE_BASED,
-            action_type="final_answer",
-            text="Извините, я не могу обработать этот запрос. Система обработки сообщений недоступна. Пожалуйста, запустите Ollama или настройте Google AI API.",
-            confidence=1.0,
+        # All sources failed - return structured error
+        logger.warning("No source could process input, returning structured error")
+        error_info = ErrorBuilder.routing_failure(
+            reason="No routing source could process input",
+            context={"input": user_input}
         )
+        return Result.error(error_info)
 
-    def _try_llm(self, user_input: str) -> ProposedAction | None:
-        """Try to get action from LLM with validation and retry."""
+    def _try_llm(self, user_input: str) -> Result[ProposedAction]:
+        """
+        Try to get action from LLM with validation and retry.
+        PHASE A: Changed return type to Result[ProposedAction] to eliminate None returns.
+        """
         import json
 
         max_retries = 2
@@ -206,9 +211,9 @@ class IntentRouter:
                 response = self._llm_manager.complete(messages, use_fallback=True)
 
                 # Parse and validate JSON response
-                parsed = self._validate_llm_response(response.content)
+                parsed_result = self._validate_llm_response(response.content)
 
-                if parsed is None:
+                if not parsed_result.is_ok():
                     # Validation failed, retry
                     retry_count += 1
                     logger.warning_data(
@@ -216,6 +221,8 @@ class IntentRouter:
                         {"retry": retry_count, "max_retries": max_retries}
                     )
                     continue
+
+                parsed = parsed_result.value
 
                 # Convert to ProposedAction
                 action_type = parsed["type"]
@@ -226,37 +233,37 @@ class IntentRouter:
                         retry_count += 1
                         continue
 
-                    return ProposedAction(
+                    return Result.ok(ProposedAction(
                         source=DecisionSource.LLM,
                         action_type="tool_call",
                         tool=parsed["tool"],
                         args=parsed.get("args", {}),
                         confidence=0.9,
-                    )
+                    ))
                 elif action_type == "final_answer":
                     if not parsed.get("text"):
                         logger.warning("LLM final_answer missing text field")
                         retry_count += 1
                         continue
 
-                    return ProposedAction(
+                    return Result.ok(ProposedAction(
                         source=DecisionSource.LLM,
                         action_type="final_answer",
                         text=parsed["text"],
                         confidence=0.9,
-                    )
+                    ))
                 elif action_type == "clarification":
                     if not parsed.get("question"):
                         logger.warning("LLM clarification missing question field")
                         retry_count += 1
                         continue
 
-                    return ProposedAction(
+                    return Result.ok(ProposedAction(
                         source=DecisionSource.LLM,
                         action_type="clarification",
                         text=parsed["question"],
                         confidence=0.9,
-                    )
+                    ))
                 else:
                     logger.warning_data("LLM response has invalid action type", {"type": action_type})
                     retry_count += 1
@@ -270,18 +277,13 @@ class IntentRouter:
                 )
                 retry_count += 1
 
-        # All retries exhausted - return structured error action instead of None
+        # All retries exhausted - return structured error
         logger.error_data("LLM routing failed after retries", {"retries": max_retries})
         error_info = ErrorBuilder.routing_failure(
             reason="LLM routing failed after retries",
             context={"retries": max_retries}
         )
-        return ProposedAction(
-            source=DecisionSource.RULE_BASED,
-            action_type="final_answer",
-            text=error_info.user_message,
-            confidence=0.0,
-        )
+        return Result.error(error_info)
 
     def _validate_llm_response(self, content: str) -> Result[dict]:
         """
@@ -312,11 +314,7 @@ class IntentRouter:
                     reason="LLM response is not a dict",
                     context={"type": str(type(parsed).__name__)}
                 )
-                return Result.ok({
-                    "type": "final_answer",
-                    "text": error_info.user_message,
-                    "error": error_info.to_dict(),
-                })
+                return Result.error(error_info)
 
             # Validate required type field
             if "type" not in parsed:
@@ -325,11 +323,7 @@ class IntentRouter:
                     reason="LLM response missing type field",
                     context={}
                 )
-                return Result.ok({
-                    "type": "final_answer",
-                    "text": error_info.user_message,
-                    "error": error_info.to_dict(),
-                })
+                return Result.error(error_info)
 
             # Validate type field is a string
             if not isinstance(parsed["type"], str):
@@ -338,11 +332,7 @@ class IntentRouter:
                     reason="LLM type field is not a string",
                     context={"type": str(type(parsed["type"]).__name__)}
                 )
-                return Result.ok({
-                    "type": "final_answer",
-                    "text": error_info.user_message,
-                    "error": error_info.to_dict(),
-                })
+                return Result.error(error_info)
 
             # Validate type is one of the expected values
             valid_types = ["tool_call", "final_answer", "clarification"]
@@ -352,11 +342,7 @@ class IntentRouter:
                     reason="LLM response has invalid type",
                     context={"type": parsed["type"], "valid": valid_types}
                 )
-                return Result.ok({
-                    "type": "final_answer",
-                    "text": error_info.user_message,
-                    "error": error_info.to_dict(),
-                })
+                return Result.error(error_info)
 
             return Result.ok(parsed)
 
@@ -367,11 +353,7 @@ class IntentRouter:
                 reason="LLM response not valid JSON",
                 context={"error": str(e)}
             )
-            return Result.ok({
-                "type": "final_answer",
-                "text": error_info.user_message,
-                "error": error_info.to_dict(),
-            })
+            return Result.error(error_info)
         except Exception as e:
             logger.error_data("LLM response validation error", {"error": str(e)})
             # Return structured error action instead of None
@@ -380,51 +362,52 @@ class IntentRouter:
                 category=ErrorCategory.ROUTING,
                 context={"phase": "llm_validation"}
             )
-            return Result.ok({
-                "type": "final_answer",
-                "text": error_info.user_message,
-                "error": error_info.to_dict(),
-            })
+            return Result.error(error_info)
 
-    def _try_rule_based(self, user_input: str) -> ProposedAction | None:
-        """Try to get action from rule-based handler."""
+    def _try_rule_based(self, user_input: str) -> Result[ProposedAction]:
+        """
+        Try to get action from rule-based handler.
+        PHASE A: Changed return type to Result[ProposedAction] to eliminate None returns.
+        """
         try:
             intent = self._rule_handler.parse_intent(user_input)
 
             if intent and intent.tool:
                 # Convert to ProposedAction
-                return ProposedAction(
+                return Result.ok(ProposedAction(
                     source=DecisionSource.RULE_BASED,
                     action_type="tool_call",
                     tool=intent.tool,
                     args=intent.args,
                     confidence=intent.confidence,
-                )
+                ))
 
             # Check for help command
             if "help" in user_input.lower():
                 help_text = self._rule_handler.get_help()
-                return ProposedAction(
+                return Result.ok(ProposedAction(
                     source=DecisionSource.RULE_BASED,
                     action_type="final_answer",
                     text=help_text,
                     confidence=1.0,
-                )
+                ))
 
         except Exception as e:
             logger.error_data("Rule-based routing failed", {"error": str(e)})
-            # Return structured error action instead of None
+            # Return structured error
             error_info = ErrorBuilder.from_exception(
                 e,
                 category=ErrorCategory.ROUTING,
                 context={"phase": "rule_based_routing"}
             )
-            return ProposedAction(
-                source=DecisionSource.RULE_BASED,
-                action_type="final_answer",
-                text=error_info.user_message,
-                confidence=0.0,
-            )
+            return Result.error(error_info)
+
+        # No action found - return structured error
+        error_info = ErrorBuilder.routing_failure(
+            reason="No rule-based action found",
+            context={"input": user_input}
+        )
+        return Result.error(error_info)
 
     def _build_system_prompt(self) -> str:
         """Build system prompt for LLM routing."""

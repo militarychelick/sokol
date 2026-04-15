@@ -102,9 +102,11 @@ class LiveLoopController:
         self._loop_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         
-        # Callbacks
+        # Callbacks (PHASE A: REMOVED - single output sink enforced)
+        # PHASE A CRITICAL FIX: Callbacks removed to enforce single output sink invariant
+        # All responses now go through Result channel only
         self._on_state_change: Optional[Callable[[AgentState], None]] = None
-        self._on_response: Optional[Callable[[str], None]] = None
+        self._response_result_channel: Optional[Callable[[str], Result[bool]]] = None  # Single output sink
         self._on_event_drop: Optional[Callable[[str, str], None]] = None  # P0: Event drop notification
         
         # Observer cleanup tracking
@@ -191,12 +193,23 @@ class LiveLoopController:
             # raise
     
     def set_state_change_callback(self, callback: Callable[[AgentState], None]) -> None:
-        """Set callback for agent state changes."""
-        self._on_state_change = callback
+        """Deprecated: state projection is provided via orchestrator event stream."""
+        logger.warning("set_state_change_callback is deprecated in final closure mode")
     
     def set_response_callback(self, callback: Callable[[str], None]) -> None:
-        """Set callback for agent responses."""
-        self._on_response = callback
+        """
+        Set callback for agent responses.
+        PHASE A: DEPRECATED - use set_response_result_channel instead for single output sink.
+        """
+        logger.warning("set_response_callback is deprecated in PHASE A - use set_response_result_channel")
+        # Deprecated path intentionally does not register callback to preserve single sink invariant.
+
+    def set_response_result_channel(self, channel: Callable[[str], Result[bool]]) -> None:
+        """
+        Set Result channel for agent responses (single output sink).
+        PHASE A: Required for single output sink invariant.
+        """
+        self._response_result_channel = channel
     
     def set_event_drop_callback(self, callback: Callable[[str, str], None]) -> None:
         """
@@ -213,6 +226,8 @@ class LiveLoopController:
             if self._running:
                 logger.warning("Live loop already running")
                 return
+            if self._response_result_channel is None:
+                raise RuntimeError("Live loop requires response result channel before start")
             
             self._running = True
             self._paused = False
@@ -293,12 +308,15 @@ class LiveLoopController:
             True if accepted, False if throttled/dropped
         """
         try:
-            # FIX: Emergency events are first-class event type for preemptive scheduling
-            # Emergency keywords → LoopEvent(EMERGENCY) instead of TEXT_INPUT
-            emergency_keywords = ["да", "нет", "отмена", "стоп", "подтверждаю", "выполняй",
-                                "yes", "no", "cancel", "stop", "confirm", "execute",
-                                "emergency", "авария", "abort", "прервать"]
-            is_emergency = any(keyword in text.lower() for keyword in emergency_keywords)
+            # Emergency is explicit command-only, no broad substring matching.
+            emergency_commands = {
+                "emergency stop",
+                "аварийная остановка",
+                "sokol emergency stop",
+                "/emergency",
+            }
+            normalized_text = text.lower().strip()
+            is_emergency = normalized_text in emergency_commands
             
             event_type = LoopEventType.EMERGENCY if is_emergency else LoopEventType.TEXT_INPUT
             
@@ -434,28 +452,12 @@ class LiveLoopController:
         start_time = time.time()
         
         try:
-            # Update state
-            self._update_state(AgentState.THINKING)
-            
-            # Execute directly through orchestrator
-            result = self._orchestrator.process_input(
-                text=text,
-                source=source,
-                screen_context=None
-            )
-
-            # PHASE 8: Unwrap Result and handle success/error
-            if result.success:
-                response = result.value
-                # Send response (callback must be set by contract)
-                self._on_response(response.user_text)
-            else:
-                # Handle error case
-                error_text = result.error.user_message if result.error else "Unknown error"
-                self._on_response(error_text)
-
-            # Update state AFTER response delivery (atomic commit)
-            self._update_state(AgentState.IDLE)
+            # Execute true emergency interrupt in orchestrator (no busy-gate text routing).
+            self._orchestrator.emergency_stop(reason=f"{source}:{text}", emit_event=True)
+            if self._response_result_channel:
+                channel_result = self._response_result_channel("Аварийная остановка активирована. Выполнение прервано.")
+                if not channel_result.is_ok():
+                    logger.error_data("Response channel failed", {"error": str(channel_result.error)})
             
             # Hard Reliability Verification: Observe emergency latency
             latency_ms = (time.time() - start_time) * 1000
@@ -484,9 +486,7 @@ class LiveLoopController:
         except Exception as e:
             logger.error_data("Emergency execution failed (no fallback)",
                 {"error": str(e)})
-            # Emergency failed but still return True (no fallback to queue)
-            self._update_state(AgentState.ERROR)
-            return True
+            return False
     
     def submit_voice(self, audio_data: bytes, source: str = "voice") -> bool:
         """Submit voice audio to the loop with Phase 2.2 unified decision engine.
@@ -732,9 +732,7 @@ class LiveLoopController:
                 try:
                     priority_tuple = self._event_queue.get(timeout=0.1)
                     _, _, event = priority_tuple  # Unpack (priority, counter, event)
-                    self._process_event(event)
-                    # BLOCK 3: Record event processed for liveness monitoring
-                    self._liveness_monitor.record_event_processed()
+                    queue_depth = self._event_queue.qsize()
                 except queue.Empty:
                     # Phase 2.1.2: No events, continue
                     continue
@@ -763,6 +761,8 @@ class LiveLoopController:
                 
                 # Process event
                 self._process_event(event)
+                # BLOCK 3: Record event processed for liveness monitoring
+                self._liveness_monitor.record_event_processed()
                 
                 # Log queue size for monitoring
                 if queue_depth > 50:
@@ -802,6 +802,13 @@ class LiveLoopController:
             system_state=self._system_state
         )
         
+        # Emergency events bypass normal context pipeline and execute directly.
+        if event.event_type == LoopEventType.EMERGENCY:
+            text = event.data.get("text", "emergency stop") if event.data else "emergency stop"
+            source = event.metadata.get("source", "ui") if event.metadata else "ui"
+            self._execute_emergency(text=text, source=source)
+            return
+
         # Update state to thinking
         self._update_state(AgentState.THINKING)
         
@@ -879,7 +886,11 @@ class LiveLoopController:
                     )
             
             # Send response to UI (single point of delivery - guaranteed)
-            self._on_response(response.user_text)
+            # PHASE A: Single output sink via Result channel
+            if self._response_result_channel:
+                channel_result = self._response_result_channel(response.user_text)
+                if not channel_result.is_ok():
+                    logger.error_data("Response channel failed", {"error": str(channel_result.error)})
 
             # Update state to idle AFTER response delivery (atomic commit)
             self._update_state(AgentState.IDLE)
@@ -927,7 +938,7 @@ class LiveLoopController:
             execution_duration_ms = (time.time() - execution_start_time) * 1000
             
             # Determine execution status
-            if self._orchestrator._state == AgentState.ERROR:
+            if self._orchestrator.state == AgentState.ERROR:
                 execution_status = ExecutionStatus.ERROR
                 error_type = "orchestrator_error"
             else:
@@ -976,6 +987,10 @@ class LiveLoopController:
                 return UnifiedInputContext.from_voice(voice_event)
             return UnifiedInputContext()
         
+        elif event.event_type == LoopEventType.EMERGENCY:
+            text = event.data.get("text", "emergency stop") if event.data else "emergency stop"
+            return UnifiedInputContext.from_text(text)
+
         elif event.event_type == LoopEventType.WAKE_WORD:
             # Wake word detected without audio, just log
             logger.info("Wake word detected (no audio)")
@@ -997,16 +1012,13 @@ class LiveLoopController:
             tags={"word": event.word}
         )
         
-        # If audio data is provided, transcribe it directly
+        # If audio data is provided, submit once through canonical voice pipeline.
         if event.audio_data and self._voice_input:
-            voice_event = self._voice_input.transcribe(event.audio_data)
-            if voice_event.text:
-                # Submit voice transcription to loop via V2 method
-                self.submit_voice(
-                    audio_data=event.audio_data,
-                    source="wake_word"
-                )
-                return
+            self.submit_voice(
+                audio_data=event.audio_data,
+                source="wake_word"
+            )
+            return
         
         # Otherwise, submit wake word event to trigger manual voice capture
         loop_event = LoopEvent(
@@ -1076,41 +1088,45 @@ class LiveLoopController:
                 mitigation_applied=True
             )
             
-            # FIX: Verify priority ordering using actual tracked priorities - enforcement mode
-            self._verify_enforced(
-                self._property_checker.check_priority_ordering,
-                event_queue=[{"priority": p} for p in self._submitted_priorities]
+            # Mitigation denied: do not enqueue this event.
+            if self._on_event_drop:
+                self._on_event_drop("wake_word", mitigation_result.reason)
+            return
+
+        # FIX: Verify priority ordering using actual tracked priorities - enforcement mode
+        self._verify_enforced(
+            self._property_checker.check_priority_ordering,
+            event_queue=[{"priority": p} for p in self._submitted_priorities]
+        )
+
+        try:
+            with self._queue_lock:
+                self._queue_counter += 1
+                self._event_queue.put_nowait((decision.priority, self._queue_counter, loop_event))
+                # FIX: Track submitted priority for real priority ordering verification
+                self._submitted_priorities.append(decision.priority)
+                if len(self._submitted_priorities) > 100:
+                    self._submitted_priorities.pop(0)
+
+            self._metrics.increment_counter(
+                "events_submitted_total",
+                tags={"source": "wake_word"}
             )
-            
-            try:
-                with self._queue_lock:
-                    self._queue_counter += 1
-                    self._event_queue.put_nowait((decision.priority, self._queue_counter, loop_event))
-                    # FIX: Track submitted priority for real priority ordering verification
-                    self._submitted_priorities.append(decision.priority)
-                    if len(self._submitted_priorities) > 100:
-                        self._submitted_priorities.pop(0)
-                
-                self._metrics.increment_counter(
-                    "events_submitted_total",
-                    tags={"source": "wake_word"}
-                )
-            except queue.Full:
-                self._queue_drop_count += 1
-                self._metrics.increment_counter(
-                    "events_dropped_total",
-                    tags={"source": "wake_word", "reason": "queue_full"}
-                )
-                logger.warning_data("Wake word event dropped - queue full",
-                    {"queue_size": 100, "drop_count": self._queue_drop_count})
-                # P0: Notify callback
-                if self._on_event_drop:
-                    self._on_event_drop("wake_word", "queue_full")
+        except queue.Full:
+            self._queue_drop_count += 1
+            self._metrics.increment_counter(
+                "events_dropped_total",
+                tags={"source": "wake_word", "reason": "queue_full"}
+            )
+            logger.warning_data("Wake word event dropped - queue full",
+                {"queue_size": 100, "drop_count": self._queue_drop_count})
+            # P0: Notify callback
+            if self._on_event_drop:
+                self._on_event_drop("wake_word", "queue_full")
     
     def _update_state(self, state: AgentState) -> None:
-        """Update agent state and notify callback."""
-        if self._on_state_change:
-            self._on_state_change(state)
+        """Update local state marker only; external projection goes through event stream."""
+        _ = state
     
     def _evaluate_system_state(self) -> SystemState:
         """

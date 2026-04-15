@@ -156,13 +156,13 @@ class RuleBasedIntentHandler:
             result = self._tool_registry.execute(intent.tool, intent.args or {})
 
             if result.is_ok():
-                tool_result = result.unwrap()
+                tool_result = result.value
                 if tool_result.success:
                     return Result.ok((True, self._format_result(intent.action, tool_result.data)))
                 else:
                     return Result.ok((False, f"Execution failed: {tool_result.error}"))
             else:
-                return Result.ok((False, f"Execution failed: {result.error()}"))
+                return Result.ok((False, f"Execution failed: {result.error}"))
 
         except Exception as e:
             logger.error_data("Intent execution failed", {"error": str(e)})

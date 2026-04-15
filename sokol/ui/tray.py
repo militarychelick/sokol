@@ -23,6 +23,7 @@ class TrayIcon(QSystemTrayIcon):
 
     # Signal for emergency stop request
     emergency_stop_requested = pyqtSignal()
+    open_section_requested = pyqtSignal(str)
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -73,6 +74,15 @@ class TrayIcon(QSystemTrayIcon):
         self._show_action = QAction("Show Window", self)
         self._show_action.triggered.connect(self._on_show)
         menu.addAction(self._show_action)
+        self._overview_action = QAction("Open Overview", self)
+        self._overview_action.triggered.connect(lambda: self._open_section("overview"))
+        menu.addAction(self._overview_action)
+        self._runtime_action = QAction("Open Runtime", self)
+        self._runtime_action.triggered.connect(lambda: self._open_section("runtime"))
+        menu.addAction(self._runtime_action)
+        self._safety_action = QAction("Open Safety", self)
+        self._safety_action.triggered.connect(lambda: self._open_section("safety"))
+        menu.addAction(self._safety_action)
 
         menu.addSeparator()
 
@@ -107,6 +117,11 @@ class TrayIcon(QSystemTrayIcon):
         )
         # Emit signal to trigger emergency through safety lane
         self.emergency_stop_requested.emit()
+
+    def _open_section(self, section: str) -> None:
+        """Open a specific control-center section."""
+        self._on_show()
+        self.open_section_requested.emit(section)
 
     def _on_quit(self) -> None:
         """Quit application."""

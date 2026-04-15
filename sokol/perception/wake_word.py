@@ -132,25 +132,18 @@ class WakeWordDetector:
             logger.warning("Wake word detection not available")
             return False
 
+        # Continuous listener is not fully implemented yet; expose this explicitly.
+        logger.warning(
+            "Continuous wake-word listening is not implemented; use detect(audio_data) path"
+        )
+        return False
+
         with self._lock:
             if self._listening:
                 logger.warning("Already listening")
                 return False
 
-            self._load_detector()
-            if self._detector is None:
-                return False
-
-            self._listening = True
-            self._thread = threading.Thread(
-                target=self._listen_loop,
-                daemon=True,
-                name="WakeWordListener"
-            )
-            self._thread.start()
-
-            logger.info("Wake word listening started")
-            return True
+            return False
 
     def stop_listening(self) -> None:
         """Stop continuous listening for wake words."""

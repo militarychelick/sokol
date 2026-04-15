@@ -110,6 +110,10 @@ class ToolContractNormalizer:
         if schema:
             input_data = self._validate_and_coerce_input(input_data, schema, tool_id)
 
+        # PHASE B B1: Validate input schema with contract validator
+        from sokol.runtime.contract_validator import validate_tool_input_schema
+        validate_tool_input_schema(tool_id, input_data, schema)
+
         # Attach trace_id if missing
         if not trace_id:
             trace_id = self._generate_trace_id()
@@ -194,6 +198,12 @@ class ToolContractNormalizer:
         if error and not error_type:
             error_type = self._infer_error_type(error)
 
+        # PHASE B B1: Validate output schema with contract validator
+        from sokol.runtime.contract_validator import validate_tool_output_schema
+        schema = self._get_tool_schema(tool_id)
+        if success:
+            validate_tool_output_schema(tool_id, result, schema)
+
         # Create contract
         contract = ToolResultContract(
             tool_id=tool_id,
@@ -232,9 +242,30 @@ class ToolContractNormalizer:
         Returns:
             Tool schema or None
         """
-        # This is a placeholder - would fetch from tool registry
-        # PHASE 2 FIX: Return empty schema dict instead of None (no None runtime)
-        return {}
+        if tool_id in self._schema_cache:
+            return self._schema_cache[tool_id]
+
+        try:
+            from sokol.tools.registry import get_registry
+
+            registry = get_registry()
+            schema = registry.get_schema(tool_id)
+            if schema is None:
+                return None
+
+            schema_dict = {
+                "type": "object",
+                "properties": schema.parameters.get("properties", {}) if isinstance(schema.parameters, dict) else {},
+                "required": schema.parameters.get("required", []) if isinstance(schema.parameters, dict) else [],
+            }
+            self._schema_cache[tool_id] = schema_dict
+            return schema_dict
+        except Exception as e:
+            logger.warning_data(
+                "Failed to resolve tool schema from registry",
+                {"tool_id": tool_id, "error": str(e)},
+            )
+            return None
 
     def _validate_and_coerce_input(
         self,

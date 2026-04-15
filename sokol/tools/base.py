@@ -94,7 +94,7 @@ class Tool(ABC, Generic[T]):
         return False
 
     @abstractmethod
-    def get_schema(self) -> Result[dict]:
+    def get_schema(self) -> Result[dict] | dict[str, Any]:
         """Get JSON Schema for tool parameters."""
         pass
 
@@ -143,7 +143,13 @@ class Tool(ABC, Generic[T]):
 
         Returns (is_valid, error_message).
         """
-        schema = self.get_schema()
+        schema_result = self.get_schema()
+        if isinstance(schema_result, Result):
+            if not schema_result.success:
+                return False, f"Schema unavailable: {schema_result.error.user_message if schema_result.error else 'unknown'}"
+            schema = schema_result.value or {}
+        else:
+            schema = schema_result
         required = schema.get("required", [])
         properties = schema.get("properties", {})
 
@@ -179,10 +185,16 @@ class Tool(ABC, Generic[T]):
 
     def get_tool_schema(self) -> CoreToolSchema:
         """Get full tool schema for registry."""
+        schema_result = self.get_schema()
+        parameters: dict[str, Any]
+        if isinstance(schema_result, Result):
+            parameters = schema_result.value if schema_result.success and schema_result.value is not None else {}
+        else:
+            parameters = schema_result
         return CoreToolSchema(
             name=self.name,
             description=self.description,
-            parameters=self.get_schema(),
+            parameters=parameters,
             risk_level=self.risk_level,
             undo_support=self.undo_support,
             examples=self.examples,
@@ -235,6 +247,39 @@ class Tool(ABC, Generic[T]):
                     risk_level=self.risk_level,
                     execution_time=time.time() - start_time,
                 )
+            )
+
+        # Execute with timeout guard.
+        # For side-effecting tools, avoid detached background execution on timeout.
+        if self.risk_level in (RiskLevel.WRITE, RiskLevel.DANGEROUS):
+            try:
+                result = self.execute(**params)
+            except Exception as e:
+                duration = time.time() - start_time
+                logger.error_data(
+                    "Tool execution failed - exception",
+                    {"tool": tool_name, "error": str(e), "duration": duration},
+                )
+                return Result.ok(
+                    ToolResult(
+                        success=False,
+                        error=str(e),
+                        execution_time=duration,
+                        risk_level=self.risk_level,
+                    )
+                )
+
+            if result is not None and result.success:
+                tool_result = result.value
+                duration = time.time() - start_time
+                tool_result.execution_time = duration
+                if tool_result.risk_level is None:
+                    tool_result.risk_level = self.risk_level
+                self._last_result = tool_result
+                return result
+
+            raise RuntimeError(
+                f"Tool execution contract violation: {tool_name} returned invalid Result in synchronous mode."
             )
 
         # Execute with timeout guard
@@ -290,7 +335,8 @@ class Tool(ABC, Generic[T]):
             tool_result = result.value
             duration = time.time() - start_time
             tool_result.execution_time = duration
-            tool_result.risk_level = self.risk_level
+            if tool_result.risk_level is None:
+                tool_result.risk_level = self.risk_level
             self._last_result = tool_result
 
             logger.info_data(
@@ -304,18 +350,12 @@ class Tool(ABC, Generic[T]):
 
             return result
 
-        # Fallback (should not reach here)
-        logger.error_data(
-            "Tool execution failed - no result",
-            {"tool": tool_name},
-        )
-        return Result.ok(
-            ToolResult(
-                success=False,
-                error="Tool execution failed - no result returned",
-                execution_time=time.time() - start_time,
-                risk_level=self.risk_level,
-            )
+        # PHASE B B4 FIX: Remove fallback logic (no silent recovery)
+        # Tool must NEVER "recover silently" - explicit error handling required
+        # If we reach here, it's a contract violation - raise error
+        raise RuntimeError(
+            f"Tool execution contract violation: {tool_name} returned None result without explicit error handling. "
+            f"PHASE B requires explicit Result[T] return or explicit error handling."
         )
 
     def __repr__(self) -> str:

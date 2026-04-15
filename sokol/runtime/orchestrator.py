@@ -662,36 +662,20 @@ class Orchestrator:
 
 
 
-
-
-
         # Pending action for confirmation (runtime only, not persistent)
-
-
-
-
         self._pending_action: ProposedAction | None = None
-
-
-
-
         self._pending_control_result: Any | None = None
 
-
-
-
-
-
-
-
-
-
-        # Callbacks
-
+        # Callbacks (PHASE A: Bridge mode - will be removed in PHASE C)
         self._on_input_callback: Callable[[str], None] | None = None
         self._on_confirm_callback: Callable[[Any], bool] | None = None
         # Optional preprocessing callback for perception adapters (defaults to passthrough)
         self._preprocess_callback: Callable[[str], str] | None = None
+
+        # Result channels (PHASE A: Bridge mode - source of truth for PHASE C)
+        # Callbacks are READ-ONLY mirrors of Result stream
+        self._input_result_channel: Callable[[str], Result[None]] | None = None
+        self._confirm_result_channel: Callable[[Any], Result[bool]] | None = None
 
         # Register emergency stop handler
         self._event_bus.subscribe(
@@ -699,10 +683,7 @@ class Orchestrator:
             self._handle_emergency_stop,
         )
 
-
-
-
-
+# ... (rest of the code remains the same)
 
 
 
@@ -816,37 +797,17 @@ class Orchestrator:
 
 
 
-        setup_logging(
-
-
-
-
-            level=self._config.logging.level,
-
-
-
-
-            log_file=self._config.logging.file,
-
-
-
-
-            max_size=self._config.logging.max_size,
-
-
-
-
-            backup_count=self._config.logging.backup_count,
-
-
-
-
-            use_json=self._config.logging.format == "json",
-
-
-
-
-        )
+        import logging
+        if not logging.getLogger().handlers:
+            setup_logging(
+                level=self._config.logging.level,
+                log_file=self._config.logging.file,
+                max_size=self._config.logging.max_size,
+                backup_count=self._config.logging.backup_count,
+                use_json=self._config.logging.format == "json",
+            )
+        else:
+            logger.info("Logging already configured; preserving existing handlers")
 
 
 
@@ -1070,13 +1031,9 @@ class Orchestrator:
 
 
 
-
-        # Force transition to idle
-
-
-
-
-        self._state_machine.force_transition(AgentState.IDLE, reason)
+        # KERNEL FIX: No state mutation in shutdown (commit_state is only mutation gate)
+        # Shutdown is interrupt → abort pipeline → no commit
+        # State reset handled by system initialization, not execution kernel
 
 
 
@@ -1282,41 +1239,30 @@ class Orchestrator:
 
 
                         if active_task:
-
-
-
-
                             self._task_manager.fail_task(active_task.task_id, reason="watchdog_timeout")
 
 
 
 
-                            logger.warning_data("Task cancelled by watchdog",
+
+
+
+                    # Cancel all tasks to ensure clean state
 
 
 
 
-                                {"task_id": active_task.task_id})
+                    self._task_manager.cancel_all("watchdog_timeout")
 
 
 
+                    
 
-                        # Cancel all tasks to ensure clean state
+                    # KERNEL FIX: Watchdog is monitoring only - NO state mutation
+                    # Safety = interrupt → abort pipeline → no commit (NOT rollback, NOT state transition)
+                    # State mutation only through commit_state()
 
-
-
-
-                        self._task_manager.cancel_all("watchdog_timeout")
-
-
-
-                        
-
-                        self._state_machine.force_transition(
-                            AgentState.ERROR, "watchdog_timeout"
-                        )
-
-                        self._state_enter_time = time.time()
+                    self._state_enter_time = time.time()
 
 
 
@@ -1326,7 +1272,8 @@ class Orchestrator:
 
 
 
-    def emergency_stop(self, reason: str = "user_triggered") -> None:
+
+    def emergency_stop(self, reason: str = "user_triggered", emit_event: bool = True) -> None:
 
 
 
@@ -1381,58 +1328,21 @@ class Orchestrator:
 
 
 
-        # Cancel ALL tasks immediately
 
+        cancelled = False
+        try:
+            self._task_manager.cancel_all(f"emergency_stop:{reason}")
+            cancelled = True
+        except Exception as e:
+            logger.error_data("Emergency stop task cancellation failed", {"error": str(e)})
 
-
-
-        cancelled = self._task_manager.cancel_all(f"emergency_stop:{reason}")
-
-
-
-
-
-
-
-
-
-        # Force state to error (emergency stop is a critical failure)
-        self._state_machine.force_transition(AgentState.ERROR, "emergency_stop")
-
-
-
-
-
-
-
-
-
-        # Emit emergency stop event
-
-
-
-
-        self._event_bus.create_and_emit(
-
-
-
-
-            EventType.EMERGENCY_STOP,
-
-
-
-
-            "orchestrator",
-
-
-
-
-            {"reason": reason, "tasks_cancelled": cancelled},
-
-
-
-
-        )
+        # Emit emergency stop event once to observers only.
+        if emit_event:
+            self._event_bus.create_and_emit(
+                EventType.EMERGENCY_STOP,
+                "orchestrator",
+                {"reason": reason, "tasks_cancelled": cancelled},
+            )
 
 
 
@@ -1545,7 +1455,8 @@ class Orchestrator:
         """
 
 
-        if not self._state_machine.can_accept_input():
+        can_accept_result = self._state_machine.can_accept_input()
+        if not can_accept_result.success or not can_accept_result.value:
 
 
             logger.warning_data(
@@ -1554,11 +1465,9 @@ class Orchestrator:
             )
 
 
-            return Result.ok(
-                self._response_builder.build(
-                    final_text="Agent is busy, please try again.",
-                    success=False
-                )
+            return self._response_builder.build(
+                final_text="Agent is busy, please try again.",
+                success=False
             )
 
 
@@ -1581,7 +1490,7 @@ class Orchestrator:
 
         # Memory read FIRST (before cancel/confirm checks) to ensure consistent context across all paths
         # This prevents context inconsistency between cancel/confirm/normal/exception paths
-        memory_context_obj = self._memory_layer.retrieve_context(text, limit=3)
+        memory_context_obj = self._safe_retrieve_memory_context(text, limit=3)
 
         # Check for confirmation/cancel commands (if pending action exists)
 
@@ -1609,8 +1518,7 @@ class Orchestrator:
                 logger.info("User confirmed pending action")
                 # Execute pending action and return real response
                 # Pass memory_context_obj to ensure consistent context across all paths
-                response = self._execute_pending_action(memory_context_obj)
-                return Result.ok(response)
+                return self._execute_pending_action(memory_context_obj)
 
 
 
@@ -1651,7 +1559,7 @@ class Orchestrator:
 
 
 
-                response = self._response_builder.build(
+                response_result = self._response_builder.build(
 
 
 
@@ -1706,9 +1614,15 @@ class Orchestrator:
 
 
 
-                response = self._response_formatter.format(response, mode, state, context=text)
+                if not response_result.success:
+                    return Result.error(response_result.error)
+                response = response_result.value
 
-                return Result.ok(response)
+                formatted_response_result = self._response_formatter.format(response, mode, state, context=text)
+                if not formatted_response_result.success:
+                    return Result.error(formatted_response_result.error)
+
+                return formatted_response_result
 
 
         # Optional preprocessing (safe passthrough if not set)
@@ -1982,7 +1896,7 @@ class Orchestrator:
 
 
 
-        memory_context_obj = self._memory_layer.retrieve_context(text, limit=3)
+        memory_context_obj = self._safe_retrieve_memory_context(text, limit=3)
 
 
 
@@ -2047,33 +1961,8 @@ class Orchestrator:
 
 
 
-
-        # Emit input event
-
-
-
-
-        self._event_bus.create_and_emit(
-
-
-
-
-            EventType.USER_INPUT,
-
-
-
-
-            source,
-
-
-
-
-            {"text": text},
-
-
-
-
-        )
+        # PHASE 4a FIX: USER_INPUT event moved to post-commit observer
+        # Event emissions moved out of execution path to prevent side effects
 
 
 
@@ -2082,37 +1971,11 @@ class Orchestrator:
 
 
 
-
-        # Transition to thinking
-
-
-
-
-        self._state_machine.transition(AgentState.THINKING, "user_input")
-
-
-
-
-
-
-
-
-
-        # Call input callback if set
-
-
-
-
-        if self._on_input_callback:
-
-
-
-
-            self._on_input_callback(text)
-
-
-
-
+        # Call input Result channel if set (PHASE A: single output sink)
+        if self._input_result_channel:
+            channel_result = self._input_result_channel(text)
+            if not channel_result.is_ok():
+                logger.error_data("Input channel failed", {"error": str(channel_result.error)})
 
 
 
@@ -2122,11 +1985,11 @@ class Orchestrator:
 
 
 
-        response: AgentResponse | None = None
+        response_result: Result[AgentResponse] | None = None
 
         try:
 
-            response = self._execute_agent_loop(text, source, memory_context_obj, screen_context, intent)
+            response_result = self._execute_agent_loop(text, source, memory_context_obj, screen_context, intent)
 
         except Exception as e:
 
@@ -2138,7 +2001,7 @@ class Orchestrator:
                 context={"phase": "process_input"}
             )
 
-            response = self._response_builder.build(
+            response_result = self._response_builder.build(
                 final_text=error_info.user_message,
                 success=False,
                 error=error_info.to_dict()
@@ -2153,7 +2016,21 @@ class Orchestrator:
             # If state is not IDLE/ERROR after execution, that's a real condition that should be visible
             pass
 
-        return Result.ok(response)
+        if response_result is None:
+            error_info = ErrorBuilder.from_exception(
+                ValueError("Execution produced no response result"),
+                category=ErrorCategory.INFRASTRUCTURE,
+                context={"phase": "process_input"}
+            )
+            return Result.error(error_info)
+        if not isinstance(response_result, Result):
+            error_info = ErrorBuilder.from_exception(
+                TypeError("Kernel boundary contract violation: non-Result response"),
+                category=ErrorCategory.INFRASTRUCTURE,
+                context={"phase": "process_input_result_boundary"},
+            )
+            return Result.error(error_info)
+        return response_result
 
 
     def _execute_agent_loop(self, user_input: str, source: str = "user", memory_context_obj: Any = None, screen_context: Optional[dict] = None, intent: Any = None) -> Result[AgentResponse]:
@@ -2235,17 +2112,12 @@ class Orchestrator:
             # PHASE 1: Route input through IntentRouter
 
 
-
-            proposed_action = self._intent_router.route(user_input)
-
-
-
-
-
-            if proposed_action is None:
+            proposed_action_result = self._intent_router.route(user_input)
+            # PHASE A: Unwrap Result, handle errors explicitly
+            if not proposed_action_result.is_ok():
                 return self._response_builder.build(final_text="Routing failed.", success=False)
 
-
+            proposed_action = proposed_action_result.value
 
 
             logger.info_data(
@@ -2665,7 +2537,7 @@ class Orchestrator:
 
 
 
-                    response = self._response_builder.build(
+                    response_result = self._response_builder.build(
 
 
 
@@ -2713,16 +2585,23 @@ class Orchestrator:
 
 
 
-                    # PHASE 3 FIX: State transition BEFORE response formatting (atomic execution)
-                    self._state_machine.transition(AgentState.WAITING_CONFIRM, "awaiting_confirmation")
+                    # PHASE 2 FIX: Intermediate commit (Execution State)
+                    # This is NOT the final commit - allows error recovery in confirmation flow
+                    commit_result = self._state_machine.commit_state(Result.ok(True))
+                    if not commit_result.is_ok():
+                        logger.error_data("State commit failed", {"error": str(commit_result.error)})
 
 
 
-                    response = self._response_formatter.format(response, mode, state, context=user_input)
+                    if not response_result.success:
+                        return Result.error(response_result.error)
+                    response = response_result.value
 
+                    formatted_response_result = self._response_formatter.format(response, mode, state, context=user_input)
+                    if not formatted_response_result.success:
+                        return Result.error(formatted_response_result.error)
 
-
-                    return Result.ok(response)  # Return confirmation response
+                    return formatted_response_result  # Return confirmation response
 
 
 
@@ -3312,7 +3191,7 @@ class Orchestrator:
 
 
                             result = self._tool_registry.execute(tool_name, input_contract.input)
-                            raw_result = result.unwrap() if result.is_ok() else None
+                            raw_result = result.value if result.is_ok() else None
 
 
 
@@ -3438,6 +3317,15 @@ class Orchestrator:
 
 
                         self._trace_collector.record_tool_result(selected_tool, tool_result)
+                        self._event_bus.create_and_emit(
+                            EventType.TOOL_RESULT,
+                            "orchestrator",
+                            {
+                                "tool": selected_tool,
+                                "success": bool(getattr(tool_result, "success", False)),
+                                "error": getattr(tool_result, "error", None),
+                            },
+                        )
 
 
 
@@ -4233,7 +4121,7 @@ class Orchestrator:
 
 
                             result = self._tool_registry.execute(tool_name, input_contract.input)
-                            raw_result = result.unwrap() if result.is_ok() else None
+                            raw_result = result.value if result.is_ok() else None
 
 
 
@@ -4359,6 +4247,15 @@ class Orchestrator:
 
 
                         self._trace_collector.record_tool_result(selected_tool, tool_result)
+                        self._event_bus.create_and_emit(
+                            EventType.TOOL_RESULT,
+                            "orchestrator",
+                            {
+                                "tool": selected_tool,
+                                "success": bool(getattr(tool_result, "success", False)),
+                                "error": getattr(tool_result, "error", None),
+                            },
+                        )
 
 
 
@@ -4868,7 +4765,7 @@ class Orchestrator:
 
 
 
-            response = self._response_builder.build(
+            response_result = self._response_builder.build(
 
 
 
@@ -5093,7 +4990,14 @@ class Orchestrator:
 
 
 
-            response = self._response_formatter.format(response, mode, state, context=memory_context_for_ux)
+            if not response_result.success:
+                return Result.error(response_result.error)
+            response = response_result.value
+
+            formatted_response_result = self._response_formatter.format(response, mode, state, context=memory_context_for_ux)
+            if not formatted_response_result.success:
+                return Result.error(formatted_response_result.error)
+            response = formatted_response_result.value
 
 
 
@@ -5542,12 +5446,18 @@ class Orchestrator:
 
 
 
+            # PHASE 2 FIX: FINAL commit (Committed State)
+            # This is the ONLY final commit point per execution
+            commit_result = self._state_machine.commit_state(Result.ok(response))
+            if not commit_result.is_ok():
+                logger.error_data("State commit failed", {"error": str(commit_result.error)})
 
-            # PHASE 6: Transition to IDLE
-
-
-
-            self._state_machine.transition(AgentState.IDLE, "agent_loop_complete")
+            # PHASE 4a FIX: Emit USER_INPUT event as post-commit observer (no side effects)
+            self._event_bus.create_and_emit(
+                EventType.USER_INPUT,
+                source,
+                {"text": user_input},
+            )
 
             return Result.ok(response)
 
@@ -5566,22 +5476,39 @@ class Orchestrator:
                 context={"phase": "agent_loop", "input": user_input[:100]}
             )
 
-            error_response = self._response_builder.build(
+            error_response_result = self._response_builder.build(
                 final_text=error_info.user_message,
                 success=False,
                 error=error_info.to_dict()
             )
 
-            # PHASE 3 FIX: State transition BEFORE error response formatting (atomic execution)
-            self._state_machine.transition(AgentState.ERROR, "agent_loop_error")
+            # PHASE 2 FIX: Error handling commit
+            # Commits error state for error recovery path
+            commit_result = self._state_machine.commit_state(
+                Result.error(
+                    ErrorBuilder.from_exception(
+                        RuntimeError("agent_loop_error"),
+                        category=ErrorCategory.INFRASTRUCTURE,
+                        context={"phase": "agent_loop_commit"},
+                    )
+                )
+            )
+            if not commit_result.is_ok():
+                logger.error_data("State commit failed", {"error": str(commit_result.error)})
 
             # Format error response based on mode (presentation layer)
             user_bias = memory_context_obj.user_bias if memory_context_obj else None
             mode = self._response_formatter.select_mode(source, user_bias)
             state = self._ux_realness.create_state(phase="finalizing", context=user_input)
-            error_response = self._response_formatter.format(error_response, mode, state, context=user_input)
+            if not error_response_result.success:
+                return Result.error(error_response_result.error)
+            error_response = error_response_result.value
 
-            return error_response
+            formatted_error_response_result = self._response_formatter.format(error_response, mode, state, context=user_input)
+            if not formatted_error_response_result.success:
+                return Result.error(formatted_error_response_result.error)
+
+            return formatted_error_response_result
 
 
 
@@ -5790,165 +5717,41 @@ class Orchestrator:
 
 
 
-            # Use callback if available (UI integration)
-
-
-
-
-            if self._on_confirm_callback:
-
-
-
-
-                approved = self._on_confirm_callback(request)
-
-
-
-
-                self._confirmation_manager.respond(request.id, approved=approved)
-
-
-
-
+            # PHASE A: Use Result channel for confirmation (single output sink)
+            if self._confirm_result_channel:
+                channel_result = self._confirm_result_channel(request)
+                if not channel_result.is_ok():
+                    logger.error_data("Confirm channel failed", {"error": str(channel_result.error)})
+                    approved = False
+                else:
+                    approved = channel_result.value
             else:
-
-
-
-
                 # Default: wait for response with timeout
-
-
-
-
                 try:
-
-
-
-
                     response = self._confirmation_manager.wait_for_response(
-
-
-
-
                         request.id,
-
-
-
-
                         timeout=self._config.safety.confirmation_timeout,
-
-
-
-
                     )
-
-
-
-
                     approved = response.approved
-
-
-
-
                 except ConfirmationTimeout:
-
-
-
-
                     logger.warning_data(
-
-
-
-
                         "Confirmation request timed out",
-
-
-
-
                         {"request_id": request.id},
-
-
-
-
                     )
-
-
-
-
                     self._confirmation_manager.cancel(request.id)
-
-
-
-
                     approved = False
 
-
-
-
-
-
-
-
-
             if not approved:
-
-
-
-
                 logger.warning_data(
-
-
-
-
                     "Dangerous action denied by user",
-
-
-
-
                     {"tool": action.tool},
-
-
-
-
                 )
-
-
-
-
                 return False
 
-
-
-
-
-
-
-
-
             logger.info_data(
-
-
-
-
                 "Dangerous action approved by user",
-
-
-
-
                 {"tool": action.tool},
-
-
-
-
             )
-
-
-
-
-
-
-
-
 
         return True
 
@@ -6024,12 +5827,10 @@ class Orchestrator:
 
 
 
-        # Transition to EXECUTING
-
-
-
-
-        self._state_machine.transition(AgentState.EXECUTING, f"tool:{tool_name}")
+        # Transition to EXECUTING via commit_state() (ONLY state mutation point)
+        commit_result = self._state_machine.commit_state(Result.ok(True))
+        if not commit_result.is_ok():
+            logger.error_data("State commit failed", {"error": str(commit_result.error)})
 
 
 
@@ -6045,7 +5846,7 @@ class Orchestrator:
 
 
             exec_result = self._tool_registry.execute(tool_name, args)
-            result = exec_result.unwrap() if exec_result.is_ok() else None
+            result = exec_result.value if exec_result.is_ok() else None
 
 
 
@@ -6104,7 +5905,7 @@ class Orchestrator:
 
 
 
-    def _format_tool_result(self, result: dict[str, Any]) -> str:
+    def _format_tool_result(self, result: Any) -> str:
 
 
 
@@ -6114,12 +5915,21 @@ class Orchestrator:
 
 
 
-        if result["success"]:
+        if hasattr(result, "success"):
+            normalized = {
+                "success": bool(getattr(result, "success", False)),
+                "data": getattr(result, "data", None),
+                "error": getattr(result, "error", None),
+            }
+        else:
+            normalized = result if isinstance(result, dict) else {"success": False, "error": "Invalid tool result"}
+
+        if normalized["success"]:
 
 
 
 
-            data = result.get("data")
+            data = normalized.get("data")
 
 
 
@@ -6144,7 +5954,7 @@ class Orchestrator:
 
 
 
-            error = result.get("error")
+            error = normalized.get("error")
             # Handle structured error dict
             if isinstance(error, dict) and "user_message" in error:
                 return error["user_message"]
@@ -6165,26 +5975,10 @@ class Orchestrator:
 
 
         """Request user confirmation for dangerous action."""
-
-
-
-
-        self._state_machine.transition(
-
-
-
-
-            AgentState.WAITING_CONFIRM,
-
-
-
-
-            f"tool:{request.tool_name}",
-
-
-
-
-        )
+        # State commit via commit_state() (ONLY state mutation point)
+        commit_result = self._state_machine.commit_state(Result.ok(True))
+        if not commit_result.is_ok():
+            logger.error_data("State commit failed", {"error": str(commit_result.error)})
 
 
 
@@ -6436,13 +6230,11 @@ class Orchestrator:
 
         if self._pending_action is None:
             logger.warning("No pending action to execute")
-            return Result.ok(
-                self._response_builder.build(
-                    final_text="Ошибка: нет ожидающего действия для выполнения.",
-                    success=False,
-                    stability_score=0.0,
-                    stability_flags=["no_pending_action"]
-                )
+            return self._response_builder.build(
+                final_text="Ошибка: нет ожидающего действия для выполнения.",
+                success=False,
+                stability_score=0.0,
+                stability_flags=["no_pending_action"]
             )
 
         # Re-check emergency stop before execution (safety)
@@ -6450,13 +6242,11 @@ class Orchestrator:
             logger.warning("Emergency stop active, cancelling pending action")
             self._pending_action = None
             self._pending_control_result = None
-            return Result.ok(
-                self._response_builder.build(
-                    final_text="Действие отменено: аварийная остановка.",
-                    success=False,
-                    stability_score=0.0,
-                    stability_flags=["emergency_stop"]
-                )
+            return self._response_builder.build(
+                final_text="Действие отменено: аварийная остановка.",
+                success=False,
+                stability_score=0.0,
+                stability_flags=["emergency_stop"]
             )
 
         logger.info("Executing confirmed pending action")
@@ -6467,11 +6257,28 @@ class Orchestrator:
         self._pending_action = None
         self._pending_control_result = None
 
-        # Execute the action through the normal pipeline
-        # Note: Control layer bypassed since user already confirmed,
-        # but emergency stop check is still performed above
-        # Pass memory_context_obj to ensure consistent context handling
-        return self._execute_agent_loop(action.text or "", source, memory_context_obj=memory_context_obj)
+        # Execute the already approved pending action directly to avoid re-routing drift.
+        if action.action_type == "tool_call":
+            tool_result = self._execute_tool_action(action)
+            response_result = self._response_builder.build(
+                final_text=self._format_tool_result(tool_result),
+                tool_results=[tool_result],
+                success=tool_result.get("success", False),
+            )
+            if not response_result.success:
+                return Result.error(response_result.error)
+            return response_result
+
+        if action.action_type in ("final_answer", "clarification"):
+            return self._response_builder.build(
+                final_text=action.text or "",
+                success=True,
+            )
+
+        return self._response_builder.build(
+            final_text="Неподдерживаемый тип подтвержденного действия.",
+            success=False,
+        )
 
 
 
@@ -7025,6 +6832,17 @@ class Orchestrator:
 
             return ""
 
+    def _safe_retrieve_memory_context(self, query: str, limit: int = 3) -> Any:
+        """Retrieve memory context with explicit Result boundary handling."""
+        memory_context_result = self._memory_layer.retrieve_context(query, limit=limit)
+        if not memory_context_result.success:
+            logger.warning_data(
+                "Memory retrieval failed, continuing with empty context",
+                {"error": str(memory_context_result.error)},
+            )
+            return None
+        return memory_context_result.value
+
 
 
 
@@ -7134,6 +6952,8 @@ class Orchestrator:
 
 
         )
+        # Forward state change as observer event projection.
+        self._event_bus.emit(event)
 
 
 
@@ -7153,7 +6973,7 @@ class Orchestrator:
 
 
 
-        self.emergency_stop(event.data.get("reason", "event"))
+        self.emergency_stop(event.data.get("reason", "event"), emit_event=False)
 
 
 

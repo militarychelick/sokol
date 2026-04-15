@@ -1,5 +1,6 @@
 """Memory Layer - long-term memory and context retrieval for Sokol."""
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any, Optional, List
 from datetime import datetime
@@ -15,6 +16,7 @@ logger = get_logger("sokol.runtime.memory_layer")
 class MemoryInteraction:
     """Single interaction stored in memory."""
 
+    entry_id: str
     timestamp: str
     source: str  # voice/ui
     input_text: str
@@ -26,6 +28,8 @@ class MemoryInteraction:
     voice_confidence: Optional[float] = None
     screen_context: Optional[dict] = None
     tool_decision: Optional[dict] = None
+    version_id: str = ""  # PHASE B B2: Version ID for lineage tracking
+    parent_version: Optional[str] = None  # PHASE B B2: Parent version for lineage
 
 
 @dataclass
@@ -70,6 +74,7 @@ class MemoryLayer:
         self._tool_registry = tool_registry
         self._task_manager = task_manager
         self._context_compression_engine = context_compression_engine
+        self._maintenance_mode = False
 
         # Short-term memory buffer (last N interactions)
         self._short_term_buffer: List[MemoryInteraction] = []
@@ -86,6 +91,7 @@ class MemoryLayer:
 
         # Task memory (track active tasks)
         self._task_memory: dict[str, dict[str, Any]] = {}
+        self._interaction_index = 0
 
     def store_interaction(
         self,
@@ -99,7 +105,7 @@ class MemoryLayer:
         voice_confidence: Optional[float] = None,
         screen_context: Optional[dict] = None,
         tool_decision: Optional[dict] = None,
-    ) -> None:
+    ) -> Result[bool]:
         """
         Store interaction in memory.
 
@@ -114,9 +120,19 @@ class MemoryLayer:
             voice_confidence: Voice transcription confidence (if voice input)
             screen_context: Screen context metadata (if screen input)
             tool_decision: Tool selection decision metadata
+
+        Returns:
+            Result[bool] - True if successful
         """
-        # Create interaction record
+        # Deterministic append-only versioning (lineage, not overwrite)
+        self._interaction_index += 1
+        entry_id = f"mem_{self._interaction_index:08d}"
+        version_id = f"v{self._interaction_index:08d}"
+        parent_version = self._short_term_buffer[-1].version_id if self._short_term_buffer else None
+
+        # Create interaction record with versioning
         interaction = MemoryInteraction(
+            entry_id=entry_id,
             timestamp=datetime.now().isoformat(),
             source=source,
             input_text=input_text[:200],  # Compress input
@@ -125,12 +141,14 @@ class MemoryLayer:
             tool_success=tool_success,
             risk_level=risk_level,
             mode=mode,
+            version_id=version_id,
+            parent_version=parent_version,
         )
 
-        # Add to short-term buffer
+        # Add to short-term buffer (append-only)
         self._short_term_buffer.append(interaction)
 
-        # Maintain buffer size
+        # Maintain buffer size (append-only, remove oldest)
         if len(self._short_term_buffer) > self._buffer_size:
             self._short_term_buffer.pop(0)
 
@@ -201,12 +219,16 @@ class MemoryLayer:
                 "source": source,
                 "tool_used": tool_used,
                 "buffer_size": len(self._short_term_buffer),
+                "version_id": version_id,
+                "parent_version": parent_version,
             },
         )
 
+        return Result.ok(True)
+
     def retrieve_context(self, query: str, limit: int = 5) -> Result[MemoryContext]:
         """
-        Retrieve relevant context for a query.
+        Retrieve relevant context for a query with deterministic resolution.
 
         Args:
             query: Query string
@@ -215,8 +237,30 @@ class MemoryLayer:
         Returns:
             MemoryContext with relevant interactions and summary
         """
-        # Simple retrieval: return last N interactions (semantic matching would be better)
-        relevant_interactions = self._short_term_buffer[-limit:] if len(self._short_term_buffer) > limit else self._short_term_buffer
+        # Deterministic selection policy:
+        # 1) Optional exact substring filter on query (case-insensitive) over input/response text
+        # 2) Stable ordering by (timestamp DESC, version_id DESC)
+        # 3) Take first N entries from ordered set
+        candidate_interactions = self._short_term_buffer
+        query_normalized = (query or "").strip().lower()
+        if query_normalized:
+            filtered = [
+                interaction for interaction in self._short_term_buffer
+                if query_normalized in interaction.input_text.lower()
+                or query_normalized in interaction.response_text.lower()
+            ]
+            if filtered:
+                candidate_interactions = filtered
+
+        # Deterministic retrieval with explicit tie-break:
+        # timestamp DESC, version_id DESC, hash(entry_id) ASC.
+        ordered_newest_first = sorted(
+            candidate_interactions,
+            key=lambda x: (x.timestamp, x.version_id, -hash(x.entry_id)),
+            reverse=True,
+        )
+        selected_interactions = ordered_newest_first[:limit] if len(ordered_newest_first) > limit else ordered_newest_first
+        relevant_interactions = [copy.deepcopy(i.__dict__) for i in selected_interactions]
 
         # Build summary
         summary = self._build_summary()
@@ -227,15 +271,16 @@ class MemoryLayer:
             compression_result = self._context_compression_engine.compress(summary, active_tasks)
             summary = compression_result.compressed_context
 
-        # Extract tool memory for context
-        tool_memory = self._tool_memory.copy()
+        # Extract immutable snapshots for context
+        tool_memory = copy.deepcopy(self._tool_memory)
+        user_bias = copy.deepcopy(self._user_model.get_bias())
 
         return Result.ok(
             MemoryContext(
                 relevant_interactions=relevant_interactions,
                 summary=summary,
                 tool_memory=tool_memory,
-                user_bias=self._user_model.get_bias(),
+                user_bias=user_bias,
             )
         )
 
@@ -315,6 +360,9 @@ class MemoryLayer:
 
     def clear_short_term_memory(self) -> None:
         """Clear short-term memory buffer."""
+        if not self._maintenance_mode:
+            logger.warning("Short-term memory clear blocked (maintenance mode disabled)")
+            return
         self._short_term_buffer.clear()
         logger.debug("Short-term memory cleared")
 
