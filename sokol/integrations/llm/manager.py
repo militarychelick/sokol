@@ -1,6 +1,7 @@
 """LLM manager - coordinates providers with fallback."""
 
 import asyncio
+import socket
 from typing import Any
 
 from sokol.core.config import Config, get_config
@@ -35,9 +36,10 @@ class LLMManager:
         """Initialize providers from config."""
         # Google AI
         if self._config.llm.google:
+            api_key = self._config.get_api_key("google")
             self._providers["google"] = GoogleAIProvider(
                 model=self._config.llm.google.model,
-                api_key=self._config.llm.google.api_key,
+                api_key=api_key,
                 base_url=self._config.llm.google.base_url,
                 max_tokens=self._config.llm.google.max_tokens,
                 temperature=self._config.llm.google.temperature,
@@ -101,14 +103,20 @@ class LLMManager:
         use_fallback: bool = True,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Get completion from primary or fallback provider."""
-        provider_name = self._config.llm.provider
+        """
+        Get completion with deterministic network-aware provider policy.
+
+        Policy:
+        - online + google key -> google
+        - otherwise -> ollama
+        """
+        provider_name = self._resolve_provider_for_request()
         provider = self._providers.get(provider_name)
 
         if not provider:
             logger.error(f"Primary provider {provider_name} not found")
             if use_fallback:
-                return self._complete_fallback(messages, excluded={provider_name}, **kwargs)
+                return self._complete_policy_fallback(messages, excluded={provider_name}, **kwargs)
             raise ValueError(f"Provider {provider_name} not found")
 
         try:
@@ -127,23 +135,29 @@ class LLMManager:
                              {"error": str(e), "traceback": traceback.format_exc()})
             
             if use_fallback:
-                return self._complete_fallback(messages, excluded={provider_name}, **kwargs)
+                return self._complete_policy_fallback(messages, excluded={provider_name}, **kwargs)
             
             return self._error_response(provider_name, f"LLM error: {str(e)}")
 
-    def _complete_fallback(self, messages: list[LLMMessage], excluded: set[str] | None = None, **kwargs: Any) -> LLMResponse:
-        """Try all available providers as explicit fallback chain."""
+    def _complete_policy_fallback(
+        self,
+        messages: list[LLMMessage],
+        excluded: set[str] | None = None,
+        **kwargs: Any,
+    ) -> LLMResponse:
+        """Try only policy-approved fallback provider (ollama)."""
         excluded = excluded or set()
-        for name, provider in self._providers.items():
-            if name in excluded:
-                continue
-            
-            try:
-                logger.info(f"Trying fallback provider: {name}")
-                return provider.complete(messages, **kwargs)
-            except Exception as e:
-                logger.warning(f"Fallback provider {name} failed: {e}")
-        
+        if "ollama" in excluded:
+            return self._error_response("none", "No allowed fallback provider available")
+
+        provider = self._providers.get("ollama")
+        if provider is None:
+            return self._error_response("none", "Allowed fallback provider ollama not configured")
+        try:
+            logger.info("Trying policy fallback provider: ollama")
+            return provider.complete(messages, **kwargs)
+        except Exception as e:
+            logger.warning(f"Fallback provider ollama failed: {e}")
         return self._error_response("none", "All LLM providers failed")
 
     async def complete_async(
@@ -152,14 +166,18 @@ class LLMManager:
         use_fallback: bool = True,
         **kwargs: Any,
     ) -> LLMResponse:
-        """Async completion with fallback."""
-        provider = self.get_primary_provider()
+        """Async completion with deterministic network-aware provider policy."""
+        provider_name = self._resolve_provider_for_request()
+        provider = self._providers.get(provider_name)
 
         if not provider:
             if use_fallback:
-                provider = self.get_fallback_provider()
-            if not provider:
-                raise RuntimeError("No LLM providers available")
+                fallback = self._providers.get("ollama")
+                if fallback:
+                    provider = fallback
+                    provider_name = "ollama"
+            if provider is None:
+                raise RuntimeError("No policy-allowed LLM providers available")
 
         try:
             return await asyncio.wait_for(
@@ -177,7 +195,7 @@ class LLMManager:
                 raise
 
             fallback = self.get_fallback_provider()
-            if fallback and fallback.name != provider.name:
+            if fallback and fallback.name != provider.name and fallback.name == "ollama":
                 return await fallback.complete_async(messages, **kwargs)
 
             return self._error_response(provider.name, "Primary provider timeout and no fallback available")
@@ -187,10 +205,27 @@ class LLMManager:
                 raise
 
             fallback = self.get_fallback_provider()
-            if fallback and fallback.name != provider.name:
+            if fallback and fallback.name != provider.name and fallback.name == "ollama":
                 return await fallback.complete_async(messages, **kwargs)
 
             return self._error_response(provider.name, f"All providers failed: {str(e)}")
+
+    def _resolve_provider_for_request(self) -> str:
+        """Resolve deterministic provider: online->google, offline->ollama."""
+        google_cfg = self._config.llm.google
+        has_google_key = bool(self._config.get_api_key("google"))
+        google_available = "google" in self._providers and has_google_key
+        if google_available and self._has_internet_connection():
+            return "google"
+        return "ollama"
+
+    def _has_internet_connection(self) -> bool:
+        """Best-effort online check with short timeout."""
+        try:
+            with socket.create_connection(("8.8.8.8", 53), timeout=1.0):
+                return True
+        except OSError:
+            return False
 
     def is_available(self) -> bool:
         """Check if any provider is available."""

@@ -13,8 +13,8 @@ fallback_provider = "ollama"
 fallback_timeout = 10.0  # seconds before fallback
 
 [llm.google]
-model = "gemini-1.5-flash"
-api_key = "AIzaSyDeRQkV948VHkqmBthy96fkYHy4hKZUPmA"
+model = "gemini-2.5-flash"
+api_key_env = "GOOGLE_API_KEY"
 base_url = "https://generativelanguage.googleapis.com/v1beta"
 max_tokens = 4096
 temperature = 0.7

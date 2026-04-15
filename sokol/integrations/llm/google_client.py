@@ -48,15 +48,18 @@ class GoogleAIProvider(LLMProvider):
 
         start_time = time.time()
 
+        config_cls = self._resolve_config_class()
+        config = config_cls(
+            system_instruction=system_instruction,
+            max_output_tokens=max_tokens or self.max_tokens,
+            temperature=temperature if temperature is not None else self.temperature,
+        )
+
         # Use models.generate_content for text completion
         response = client.models.generate_content(
             model=self.model,
             contents=contents,
-            config=genai.GenerateContentConfig(
-                system_instruction=system_instruction,
-                max_output_tokens=max_tokens or self.max_tokens,
-                temperature=temperature if temperature is not None else self.temperature,
-            )
+            config=config,
         )
 
         latency_ms = (time.time() - start_time) * 1000
@@ -104,15 +107,18 @@ class GoogleAIProvider(LLMProvider):
 
         start_time = time.time()
 
+        config_cls = self._resolve_config_class()
+        config = config_cls(
+            system_instruction=system_instruction,
+            max_output_tokens=max_tokens or self.max_tokens,
+            temperature=temperature if temperature is not None else self.temperature,
+        )
+
         # Use models.generate_content for text completion
         response = await client.models.generate_content_async(
             model=self.model,
             contents=contents,
-            config=genai.GenerateContentConfig(
-                system_instruction=system_instruction,
-                max_output_tokens=max_tokens or self.max_tokens,
-                temperature=temperature if temperature is not None else self.temperature,
-            )
+            config=config,
         )
 
         latency_ms = (time.time() - start_time) * 1000
@@ -157,14 +163,17 @@ class GoogleAIProvider(LLMProvider):
             elif msg.role == "assistant":
                 contents.append({"role": "model", "parts": [{"text": msg.content}]})
 
+        config_cls = self._resolve_config_class()
+        config = config_cls(
+            system_instruction=system_instruction,
+            max_output_tokens=max_tokens or self.max_tokens,
+            temperature=temperature if temperature is not None else self.temperature,
+        )
+
         response = client.models.generate_content(
             model=self.model,
             contents=contents,
-            config=genai.GenerateContentConfig(
-                system_instruction=system_instruction,
-                max_output_tokens=max_tokens or self.max_tokens,
-                temperature=temperature if temperature is not None else self.temperature,
-            ),
+            config=config,
             stream=True
         )
 
@@ -199,17 +208,33 @@ class GoogleAIProvider(LLMProvider):
             elif msg.role == "assistant":
                 contents.append({"role": "model", "parts": [{"text": msg.content}]})
 
+        config_cls = self._resolve_config_class()
+        config = config_cls(
+            system_instruction=system_instruction,
+            max_output_tokens=max_tokens or self.max_tokens,
+            temperature=temperature if temperature is not None else self.temperature,
+        )
+
         response = await client.models.generate_content_async(
             model=self.model,
             contents=contents,
-            config=genai.GenerateContentConfig(
-                system_instruction=system_instruction,
-                max_output_tokens=max_tokens or self.max_tokens,
-                temperature=temperature if temperature is not None else self.temperature,
-            ),
+            config=config,
             stream=True
         )
 
         async for chunk in response:
             if chunk.text:
                 yield chunk.text
+
+    def _resolve_config_class(self):
+        """Resolve GenerateContentConfig class across SDK versions."""
+        from google import genai
+        config_cls = getattr(genai, "GenerateContentConfig", None)
+        if config_cls is not None:
+            return config_cls
+        types_mod = getattr(genai, "types", None)
+        if types_mod is not None:
+            config_cls = getattr(types_mod, "GenerateContentConfig", None)
+            if config_cls is not None:
+                return config_cls
+        raise RuntimeError("google-genai GenerateContentConfig is unavailable in installed SDK")

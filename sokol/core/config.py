@@ -108,7 +108,7 @@ class LLMConfig(BaseModel):
     fallback_timeout: float = 10.0
     google: LLMProviderConfig = Field(
         default_factory=lambda: LLMProviderConfig(
-            model="gemini-1.5-flash",
+            model="gemini-2.5-flash",
             api_key="",
             base_url="https://generativelanguage.googleapis.com/v1beta",
         )
@@ -164,6 +164,8 @@ class Config(BaseModel):
     def get_api_key(self, provider: str) -> str | None:
         """Get API key for provider from config or environment."""
         # First check config file
+        if provider == "google" and self.llm.google.api_key:
+            return self.llm.google.api_key
         if provider == "openai" and self.llm.openai.api_key:
             return self.llm.openai.api_key
         if provider == "anthropic" and self.llm.anthropic.api_key:
@@ -171,6 +173,7 @@ class Config(BaseModel):
 
         # Fallback to environment variable
         provider_configs = {
+            "google": self.llm.google.api_key_env,
             "openai": self.llm.openai.api_key_env,
             "anthropic": self.llm.anthropic.api_key_env,
         }
