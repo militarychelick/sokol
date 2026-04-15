@@ -48,6 +48,7 @@ access_key_env = "PICOVOICE_ACCESS_KEY"
 confirm_dangerous = true
 dangerous_tools = ["file_delete", "file_write", "app_close", "system_shutdown"]
 max_retries = 3
+confirmation_timeout = 30.0
 
 [memory]
 session_ttl = 3600  # seconds

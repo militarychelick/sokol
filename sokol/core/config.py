@@ -52,6 +52,7 @@ class SafetyConfig(BaseModel):
         ]
     )
     max_retries: int = 3
+    confirmation_timeout: float = 30.0
 
 
 class MemoryConfig(BaseModel):

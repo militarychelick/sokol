@@ -1514,7 +1514,7 @@ class Orchestrator:
 
             # Confirmation commands
 
-            if text_lower in ["да", "подтверждаю", "выполняй"]:
+            if text_lower in ["да", "подтверждаю", "выполняй", "делай", "execute", "confirm"]:
                 logger.info("User confirmed pending action")
                 # Execute pending action and return real response
                 # Pass memory_context_obj to ensure consistent context across all paths
@@ -2261,6 +2261,9 @@ class Orchestrator:
 
 
             if proposed_action.action_type == "tool_call":
+                validation = self._validate_tool_action(proposed_action)
+                if validation is not None:
+                    return validation
 
 
 
@@ -6256,6 +6259,10 @@ class Orchestrator:
         source = action.source.value if action.source else "user"
         self._pending_action = None
         self._pending_control_result = None
+        if action.action_type == "tool_call":
+            validation = self._validate_tool_action(action)
+            if validation is not None:
+                return validation
 
         # Execute the already approved pending action directly to avoid re-routing drift.
         if action.action_type == "tool_call":
@@ -6279,6 +6286,26 @@ class Orchestrator:
             final_text="Неподдерживаемый тип подтвержденного действия.",
             success=False,
         )
+
+    def _validate_tool_action(self, action: ProposedAction) -> Result[AgentResponse] | None:
+        """Validate proposed tool action against strict registry before control/execute."""
+        tool_name = (action.tool or "").strip()
+        if not tool_name:
+            return self._response_builder.build(
+                final_text="Невозможно выполнить действие: не указан инструмент.",
+                success=False,
+                stability_score=0.0,
+                stability_flags=["missing_tool"],
+            )
+        has_tool_result = self._tool_registry.has_tool(tool_name)
+        if not has_tool_result.value:
+            return self._response_builder.build(
+                final_text=f"Инструмент '{tool_name}' недоступен в текущей конфигурации.",
+                success=False,
+                stability_score=0.0,
+                stability_flags=["tool_not_registered"],
+            )
+        return None
 
 
 

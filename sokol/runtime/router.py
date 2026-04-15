@@ -10,6 +10,7 @@ from sokol.runtime.intent import RuleBasedIntentHandler
 from sokol.runtime.result import Result
 from sokol.integrations.llm import LLMManager, LLMMessage
 from sokol.core.config import get_config
+from sokol.tools.registry import get_registry
 
 logger = get_logger("sokol.runtime.router")
 
@@ -148,6 +149,7 @@ class IntentRouter:
 
         self._llm_manager = LLMManager(config)
         self._rule_handler = RuleBasedIntentHandler()
+        self._tool_registry = get_registry()
 
         # Priority: LLM first, then rule-based
         self._priority = [DecisionSource.LLM, DecisionSource.RULE_BASED]
@@ -233,11 +235,16 @@ class IntentRouter:
                         retry_count += 1
                         continue
 
+                    normalized = self._normalize_tool_call(parsed["tool"], parsed.get("args", {}))
+                    if not normalized.is_ok():
+                        retry_count += 1
+                        continue
+                    normalized_tool, normalized_args = normalized.value
                     return Result.ok(ProposedAction(
                         source=DecisionSource.LLM,
                         action_type="tool_call",
-                        tool=parsed["tool"],
-                        args=parsed.get("args", {}),
+                        tool=normalized_tool,
+                        args=normalized_args,
                         confidence=0.9,
                     ))
                 elif action_type == "final_answer":
@@ -249,7 +256,7 @@ class IntentRouter:
                     return Result.ok(ProposedAction(
                         source=DecisionSource.LLM,
                         action_type="final_answer",
-                        text=parsed["text"],
+                        text=self._enforce_language_policy(parsed["text"]),
                         confidence=0.9,
                     ))
                 elif action_type == "clarification":
@@ -261,7 +268,7 @@ class IntentRouter:
                     return Result.ok(ProposedAction(
                         source=DecisionSource.LLM,
                         action_type="clarification",
-                        text=parsed["question"],
+                        text=self._enforce_language_policy(parsed["question"]),
                         confidence=0.9,
                     ))
                 else:
@@ -411,27 +418,66 @@ class IntentRouter:
 
     def _build_system_prompt(self) -> str:
         """Build system prompt for LLM routing."""
-        return """You are a Windows AI assistant.
+        available_tools = sorted(self._tool_registry.list_tools().value)
+        return f"""You are Sokol deterministic Windows agent router.
 
 You MUST respond with valid JSON only:
 
 1. Tool Call (when you need to execute a tool):
-{
+{{
   "type": "tool_call",
   "tool": "tool_name",
-  "args": {"param": "value"}
-}
+  "args": {{"param": "value"}}
+}}
 
 2. Final Answer (when no tool needed):
-{
+{{
   "type": "final_answer",
   "text": "Your response"
-}
+}}
 
 3. Clarification (when you need more info):
-{
+{{
   "type": "clarification",
   "question": "Your question"
-}
+}}
 
-IMPORTANT: Always return valid JSON. Never include text outside the JSON object."""
+IMPORTANT: Always return valid JSON. Never include text outside the JSON object.
+- For tool_call, you MUST use only tools from this exact list: {available_tools}
+- You MUST write all user-facing text (final_answer/question) in Russian.
+- Do not invent tool names. If no listed tool is suitable, use final_answer or clarification.
+"""
+
+    def _normalize_tool_call(self, tool: str, args: dict[str, Any]) -> Result[tuple[str, dict[str, Any]]]:
+        """Normalize and validate tool names against strict registry allowlist."""
+        normalized_tool = (tool or "").strip()
+        normalized_args = dict(args or {})
+        aliases = {
+            "open_application": "app_launcher",
+            "launch_app": "app_launcher",
+            "delete_file": "file_ops",
+        }
+        if normalized_tool in aliases:
+            alias_target = aliases[normalized_tool]
+            if normalized_tool == "delete_file":
+                path = normalized_args.get("path") or normalized_args.get("file_path")
+                normalized_args = {"action": "delete", "path": path} if path else {"action": "delete"}
+            normalized_tool = alias_target
+        has_tool_result = self._tool_registry.has_tool(normalized_tool)
+        if not has_tool_result.value:
+            logger.warning_data("Rejected unknown tool from router", {"tool": tool})
+            error_info = ErrorBuilder.routing_failure(
+                reason="LLM proposed unknown tool",
+                context={"tool": tool},
+            )
+            return Result.error(error_info)
+        return Result.ok((normalized_tool, normalized_args))
+
+    def _enforce_language_policy(self, text: str) -> str:
+        """Ensure user-facing router text remains Russian-first."""
+        if not text:
+            return text
+        has_cyrillic = any("а" <= c.lower() <= "я" or c.lower() == "ё" for c in text)
+        if has_cyrillic:
+            return text
+        return f"Поясните, пожалуйста, запрос на русском: {text}"
